@@ -31,7 +31,7 @@ A comprehensive web application for searching, accessing, and downloading Europe
 
 ```
 └── src/
-    ├── backend/                        # Backend (.NET Clean Architecture)
+    ├── backend/                    # Backend (.NET Clean Architecture)
     │   ├── Api/                    # Web API layer
     │   │   ├── Controllers/
     │   │   ├── Properties/
