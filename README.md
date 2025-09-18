@@ -7,13 +7,13 @@ A comprehensive web application for searching, accessing, and downloading Europe
 - **Advanced Search**: Keyword-based search across EU legal documents
 - **Category Filtering**: Filter by document type (directives, regulations, decisions)
 - **Multi-language Support**: Access documents in multiple EU languages
-- **PDF Viewing**: View documents directly in browser
+- **PDF Viewing**: View documents directly in browser----
 - **Bulk Downloads**: Download ZIP archives of documents by language
 - **Responsive Design**: Optimized for desktop and mobile devices
 
 ## Tech Stack
 
-**Tech Stack:**
+**Frontend:**
 - Vue.js 3 with TypeScript
 - Vue Router for navigation
 - Pinia for state management
@@ -77,12 +77,12 @@ cd lawpicker-app
 ### 2. Backend Setup
 
 ```bash
-cd src/api/
+cd src/backend/
 dotnet restore
 dotnet build
 ```
 
-### Backend Configuration
+**Backend Configuration**
 
 Configure user secrets for development:
 ```bash
@@ -112,6 +112,13 @@ API will be available at `https://localhost:8000` and `http://localhost:7999`
 
 ### 3. Frontend Setup
 
+**Frontend Configuration**
+
+Create `.env.local` in the `frontend` folder:
+```
+VITE_API_BASE_URL=https://localhost:8000/api
+```
+
 ```bash
 cd src/frontend
 npm install
@@ -119,22 +126,10 @@ npm run dev
 ```
 Frontend will be available at `http://localhost:3000`
 
-## Configuration
-
-
-
-### Frontend Configuration
-
-Create `.env.local` in the `frontend` folder:
-```
-VITE_API_BASE_URL=https://localhost:8000/api
-```
-
 ## API Endpoints
 
-| Method |                                Endpoint                                      |          Description         |
-|--------|------------------------------------------------------------------------------|------------------------------|
-|  GET   | `/api/documents?search={searchQuery?}&documentTypes={"LDR"}&page=0&limit=10` | Search documents by keywords |
-|  GET   |                       `/api/documents/{celex}/pdf`                           |      Get PDF by language     |
-|  POST  |                           `/api/documents/pdf`                               |     Generate ZIP download    |
-|--------|------------------------------------------------------------------------------|------------------------------|
+| Method |                                Endpoint                               |          Description         |
+|--------|-----------------------------------------------------------------------|------------------------------|
+|  GET   | `/api/documents?search={searchQuery?}&documentTypes={"LDR"}&page=0&limit=10` | Search documents by keywords and/or categories |
+|  GET   |                       `/api/documents/{celex}/pdf`                    |      Get PDF by language     |
+|  POST  |                           `/api/documents/pdf`                        |     Generate ZIP download    |
