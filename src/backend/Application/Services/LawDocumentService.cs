@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using Application.Dto;
 using Application.Exceptions;
 using Application.Interfaces.IClients;
 using Application.Interfaces.IRepositories;
@@ -44,11 +45,18 @@ public class LawDocumentService : ILawDocumentService
     }
 
 
-    public async Task<List<LawDocument>> GetLawDocumentsAsync(string? documentTypes, string? search, int page, int limit)
+    public async Task<LawDocumentsListResponse> GetLawDocumentsAsync(string? documentTypes, string? search, int page, int limit)
     {
         var lawDocuments = await _lawDocumentRepository.GetLawDocumentsAsync(documentTypes, search, page, limit);
+        int count = await _lawDocumentRepository.GetLawDocumentsCountAsync(documentTypes, search);
 
-        return lawDocuments;
+        var lawDocumentsResponse = new LawDocumentsListResponse()
+        {
+            Count = count,
+            LawDocuments = lawDocuments
+        };
+
+        return lawDocumentsResponse;
     }
 
 

@@ -21,6 +21,18 @@ public static class ConfigureServicesExtension
     {
         services.AddControllers();
 
+        services.AddCors(options => 
+        {
+            options.AddPolicy("newPolicy", builder => 
+            {
+                builder
+                .AllowAnyHeader()
+                .WithOrigins("http://localhost:5173")
+                .AllowAnyMethod()
+                .AllowCredentials();
+            });
+        });
+
         // Add Swagger configuration with JWT Bearer authentication
         services.AddSwaggerGen(option =>
         {

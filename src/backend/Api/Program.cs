@@ -12,6 +12,8 @@ app.UseHttpsRedirection();
 app.UseSwagger();
 app.UseSwaggerUI();
 
+app.UseCors("newPolicy");
+
 app.UseRouting();
 
 app.UseAuthentication();

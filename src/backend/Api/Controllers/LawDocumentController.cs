@@ -4,7 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace Api.Controllers;
 
-[Authorize]
+//[Authorize]
 [ApiController]
 [Route("/api/laws")]
 public class LawDocumentController : ControllerBase

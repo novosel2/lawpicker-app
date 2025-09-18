@@ -47,6 +47,28 @@ public class LawDocumentRepository : ILawDocumentRepository
             
         return lawDocuments;
     }
+    
+    
+    public async Task<int> GetLawDocumentsCountAsync(string? documentTypes, string? search)
+    {
+        var query = _db.LawDocuments.AsQueryable();
+        
+        if (!string.IsNullOrWhiteSpace(documentTypes))
+        {
+            var typesArray = documentTypes.ToCharArray();
+            query = query.Where(ld => typesArray.Contains(ld.Type));
+        }
+
+        if (search != null)
+        {
+            var searchWords = search.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+
+            foreach (var word in searchWords)
+                query = query.Where(ld => EF.Functions.Like(ld.Title.ToLower(), $"%{word.ToLower()}%"));
+        }
+
+        return await query.CountAsync();
+    }
 
 
     public async Task<LawDocument?> GetLawDocumentByCelexAsync(string celex)
