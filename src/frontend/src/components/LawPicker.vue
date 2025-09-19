@@ -49,11 +49,15 @@ const loading = ref(false);
 const searching = ref(false);  // Separate state for search button
 const downloading = ref(false);
 const error = ref<string | null>(null);
+const initialLoading = ref(true); // New state for initial page load
 
 // Computed properties
 const totalPages = computed(() => Math.ceil(totalDocuments.value / limit.value));
 const hasSelectedDocuments = computed(() => selectedDocuments.value.size > 0);
 const selectedCount = computed(() => selectedDocuments.value.size);
+const hasActiveFilters = computed(() => {
+    return search.value.trim() !== '' || selectedLawType.value !== '';
+});
 
 const paginationRange = computed(() => {
     const rangeWithDots: (number | string)[] = [];
@@ -126,8 +130,6 @@ const getLawDocumentsAsync = async (
         
         const response = await axios.get('https://localhost:8000/api/laws', { params });
         
-        console.log('Raw API response:', response.data); // Debug log
-        
         // Based on your description, API returns { count: number, [array of documents] }
         // But looking at your sample data, it seems to be just an array
         if (response.data) {
@@ -152,14 +154,6 @@ const getLawDocumentsAsync = async (
                 return {
                     count: response.data.count,
                     documents: documents
-                };
-            }
-            
-            // If it's just an array (like your sample data)
-            if (Array.isArray(response.data)) {
-                return {
-                    count: response.data.length,
-                    documents: response.data
                 };
             }
         }
@@ -188,8 +182,6 @@ const fetchDocuments = async (isNewSearch: boolean = false) => {
             limit.value
         );
         
-        console.log('API Response:', response); // Debug log
-        
         totalDocuments.value = response.count;
         lawDocuments.value = response.documents;
         
@@ -204,13 +196,21 @@ const fetchDocuments = async (isNewSearch: boolean = false) => {
     } finally {
         loading.value = false;
         searching.value = false;
+        initialLoading.value = false; // Clear initial loading state
     }
 };
 
 const handleSearch = () => {
     currentPage.value = 0; // Reset to first page on new search
-    selectedDocuments.value.clear(); // Clear selections only on new search
     fetchDocuments(true);  // Pass true to indicate this is a search
+};
+
+const clearFilters = () => {
+    search.value = '';
+    selectedLawType.value = '';
+    currentPage.value = 0;
+    selectedDocuments.value.clear();
+    fetchDocuments(true);
 };
 
 const openPDF = async (celex: string) => {
@@ -233,7 +233,7 @@ const openPDF = async (celex: string) => {
             try {
                 const url = new URL(response.data.url);
                 // Only allow https URLs from trusted domains
-                if (url.protocol === 'https:' || url.protocol === 'http:') {
+                if (url.protocol === 'https:') {
                     window.open(response.data.url, '_blank', 'noopener,noreferrer');
                 } else {
                     throw new Error('Invalid URL protocol');
@@ -396,6 +396,14 @@ watch([selectedDocuments], () => {
 </script>
 
 <template>
+    <!-- Loading Overlay - Shows on initial load or when no documents -->
+    <div v-if="initialLoading || (loading && lawDocuments.length === 0)" class="loading-overlay">
+        <div class="loading-spinner-container">
+            <div class="loading-spinner"></div>
+            <p class="loading-text">Loading documents...</p>
+        </div>
+    </div>
+
     <!-- Header -->
     <header class="header">
         <h1>Law Picker</h1>
@@ -424,6 +432,18 @@ watch([selectedDocuments], () => {
                         {{ language.Name }}
                     </option>
                 </select>
+                <button 
+                    type="button" 
+                    @click="clearFilters" 
+                    :disabled="!hasActiveFilters"
+                    class="clear-filters-btn"
+                    :class="{ 'active': hasActiveFilters }"
+                    title="Clear all filters"
+                >
+                    <svg width="18" height="18" fill="currentColor" viewBox="0 0 16 16">
+                        <path d="M2.146 2.854a.5.5 0 1 1 .708-.708L8 7.293l5.146-5.147a.5.5 0 0 1 .708.708L8.707 8l5.147 5.146a.5.5 0 0 1-.708.708L8 8.707l-5.146 5.147a.5.5 0 0 1-.708-.708L7.293 8 2.146 2.854Z"/>
+                    </svg>
+                </button>
                 <button 
                     type="button" 
                     @click="handleSearch" 
@@ -585,15 +605,60 @@ watch([selectedDocuments], () => {
         </div>
 
         <!-- No Results -->
-        <div v-else-if="!loading" class="no-results">
+        <div v-else-if="!loading && !initialLoading" class="no-results">
             <p>No documents found. Try adjusting your search criteria.</p>
         </div>
     </div>
-
-    <!-- No Loading Overlay - Removed -->
 </template>
 
 <style scoped>
+/* Loading Overlay */
+.loading-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(255, 255, 255, 0.95);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 9999;
+}
+
+.loading-spinner-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 20px;
+}
+
+.loading-spinner {
+    width: 50px;
+    height: 50px;
+    border: 4px solid #f3f3f3;
+    border-top: 4px solid #007bff;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+.loading-text {
+    color: #495057;
+    font-size: 16px;
+    margin: 0;
+    animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+}
+
 /* Header */
 .header {
     display: flex;
@@ -670,6 +735,7 @@ watch([selectedDocuments], () => {
 }
 
 select {
+    flex: 0;
     padding: 0 12px;
     background: white;
     cursor: pointer;
@@ -677,6 +743,7 @@ select {
 }
 
 .search-btn {
+    flex: 0;
     padding: 0 25px;
     background-color: #007bff;
     color: white;
@@ -695,6 +762,44 @@ select {
 .search-btn:disabled {
     background-color: #6c757d;
     cursor: not-allowed;
+}
+
+.clear-filters-btn {
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    background-color: #e9ecef;
+    color: #6c757d;
+    border: 1px solid #ced4da;
+    border-radius: 4px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+    flex-shrink: 0;
+}
+
+.clear-filters-btn:disabled {
+    background-color: #f8f9fa;
+    color: #dee2e6;
+    cursor: not-allowed;
+    border-color: #dee2e6;
+}
+
+.clear-filters-btn.active {
+    background-color: #dc3545;
+    color: white;
+    border-color: #dc3545;
+}
+
+.clear-filters-btn.active:hover {
+    background-color: #c82333;
+    border-color: #bd2130;
+}
+
+.clear-filters-btn svg {
+    flex-shrink: 0;
 }
 
 /* Error Message */
@@ -738,10 +843,6 @@ select {
     border-top-color: #004085;
     animation: spin 1s linear infinite;
     flex-shrink: 0;
-}
-
-@keyframes spin {
-    to { transform: rotate(360deg); }
 }
 
 @keyframes slideDown {
@@ -1035,6 +1136,15 @@ select {
         padding: 5px 10px;
         font-size: 12px;
         min-width: 30px;
+    }
+    
+    .loading-spinner {
+        width: 40px;
+        height: 40px;
+    }
+    
+    .loading-text {
+        font-size: 14px;
     }
 }
 </style>
