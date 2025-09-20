@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.IO.Compression;
 using Application.Dto;
 using Application.Exceptions;
@@ -5,6 +6,7 @@ using Application.Interfaces.IClients;
 using Application.Interfaces.IRepositories;
 using Application.Interfaces.IServices;
 using Domain.Entities;
+using Microsoft.Extensions.Logging;
 
 namespace Application.Services;
 
@@ -12,11 +14,14 @@ public class LawDocumentService : ILawDocumentService
 {
     private readonly ILawDocumentClient _lawClient;
     private readonly ILawDocumentRepository _lawDocumentRepository;
+    private readonly ILogger<LawDocumentService> _logger;
 
-    public LawDocumentService(ILawDocumentClient lawClient, ILawDocumentRepository lawDocumentRepository)
+    public LawDocumentService(ILawDocumentClient lawClient, ILawDocumentRepository lawDocumentRepository, 
+            ILogger<LawDocumentService> logger)
     {
         _lawClient = lawClient;
         _lawDocumentRepository = lawDocumentRepository;
+        _logger = logger;
     }
 
 
@@ -59,24 +64,73 @@ public class LawDocumentService : ILawDocumentService
         return lawDocumentsResponse;
     }
 
-
     public async Task<byte[]> GetLawDocumentFilesAsync(List<string> celexNumbers, string lang)
     {
-        using var zipStream = new MemoryStream();
-            using (var zip = new ZipArchive(zipStream, ZipArchiveMode.Create))
+        _logger.LogInformation("Entering GetLawDocumentFilesAsync method in LawDocumentService.");
+        var swMain = Stopwatch.StartNew();
+
+        var results = new List<DownloadResult>();
+
+        int maxConcurrency = 10;
+        var semaphore = new SemaphoreSlim(maxConcurrency);
+
+        var tasks = celexNumbers.Select(async celex => 
+        {
+            await semaphore.WaitAsync();
+            try
             {
-                foreach (var celex in celexNumbers)
+                var sw = Stopwatch.StartNew();
+                _logger.LogInformation("Downloading PDF {Celex}", celex);
+
+                var fileBytes = await _lawClient.DownloadPdfAsync(celex, lang);
+
+                sw.Stop();
+                _logger.LogInformation("Downloaded PDF {Celex} in {Elapsed}ms", celex, sw.ElapsedMilliseconds);
+
+                return new DownloadResult()
                 {
-                    try
-                    {
-                        var fileBytes = await _lawClient.DownloadPdfAsync(celex, lang);
-                        var entry = zip.CreateEntry($"document_{celex}.pdf");
-                        using var entryStream = entry.Open();
-                        await entryStream.WriteAsync(fileBytes);
-                    }
-                    catch { /* Skip failed downloads */ }
-                }
+                    Celex = celex,
+                    Data = fileBytes,
+                    Success = true
+                };
+
             }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to download {Celex}", celex);
+                return new DownloadResult()
+                {
+                    Celex = celex,
+                    Data = new byte[0],
+                    Success = false
+                };
+            }
+            finally 
+            {
+                semaphore.Release();
+            }
+        });
+
+        var files = await Task.WhenAll(tasks);
+
+        using var zipStream = new MemoryStream();
+        using var zip = new ZipArchive(zipStream, ZipArchiveMode.Create, true);
+
+        foreach (var file in files)
+        {
+            _logger.LogInformation("Started writing {Celex} to zip", file.Celex);
+            var sw = Stopwatch.StartNew();
+
+            var entry = zip.CreateEntry($"document_{file.Celex}.pdf", CompressionLevel.Optimal);
+            using var entryStream = entry.Open();
+            await entryStream.WriteAsync(file.Data);
+
+            sw.Stop();
+            _logger.LogInformation("Finished writing {Celex} to zip", file.Celex);
+
+        }
+        swMain.Stop();
+        _logger.LogInformation("All downloads and zipping finished in {Elapsed}ms", swMain.ElapsedMilliseconds);
 
         return zipStream.ToArray();
     }

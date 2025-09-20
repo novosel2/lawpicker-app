@@ -4,16 +4,18 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace Api.Controllers;
 
-//[Authorize]
+[Authorize]
 [ApiController]
 [Route("/api/laws")]
 public class LawDocumentController : ControllerBase
 {
     private readonly ILawDocumentService _lawDocumentService;
+    private readonly ILogger<LawDocumentController> _logger;
 
-    public LawDocumentController(ILawDocumentService lawDocumentService)
+    public LawDocumentController(ILawDocumentService lawDocumentService, ILogger<LawDocumentController> logger)
     {
         _lawDocumentService = lawDocumentService;
+        _logger = logger;
     }
     
 

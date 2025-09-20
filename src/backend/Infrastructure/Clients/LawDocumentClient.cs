@@ -1,18 +1,22 @@
+using System.Diagnostics;
 using System.Text.Json;
 using Application.Interfaces.IClients;
 using Domain.Entities;
+using Microsoft.Extensions.Logging;
 
 namespace Infrastructure.Clients;
 
 public class LawDocumentClient : ILawDocumentClient
 {
     private readonly HttpClient _httpClient;
+    private readonly ILogger<LawDocumentClient> _logger;
     private readonly string sparqlUrl = "https://publications.europa.eu/webapi/rdf/sparql";
     private readonly string eurLexUrl = "https://eur-lex.europa.eu/legal-content";
 
-    public LawDocumentClient(HttpClient httpClient)
+    public LawDocumentClient(HttpClient httpClient, ILogger<LawDocumentClient> logger)
     {
         _httpClient = httpClient;
+        _logger = logger;
     }
 
     public async Task<List<LawDocument>> GetLawsAsync(int limit, int offset)
