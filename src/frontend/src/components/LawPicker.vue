@@ -2,8 +2,8 @@
 import { onMounted, ref, computed, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { languages, lawTypes } from '../store/lists';
-import axios from 'axios';
-import DOMPurify from 'dompurify';  // Add this import for XSS protection
+import axios from '../axios-config.ts';
+import DOMPurify from 'dompurify';
 
 // Types
 interface LawDocument {
@@ -29,6 +29,14 @@ interface SearchParams {
 // Router
 const router = useRouter();
 
+// Check authentication on mount
+const checkAuth = () => {
+    const token = localStorage.getItem('jwt_token');
+    if (!token) {
+        router.push('/');
+    }
+};
+
 // Search and filter state
 const selectedLang = ref("EN");
 const selectedLawType = ref("");
@@ -46,10 +54,18 @@ const selectAll = ref(false);
 
 // UI state
 const loading = ref(false);
-const searching = ref(false);  // Separate state for search button
+const searching = ref(false);
 const downloading = ref(false);
 const error = ref<string | null>(null);
-const initialLoading = ref(true); // New state for initial page load
+const initialLoading = ref(true);
+
+// Download progress
+const downloadProgress = ref(0);
+const estimatedTime = ref(0);
+const progressInterval = ref<number | null>(null);
+
+// Cancellation support
+const downloadAbortController = ref<AbortController | null>(null);
 
 // Computed properties
 const totalPages = computed(() => Math.ceil(totalDocuments.value / limit.value));
@@ -62,11 +78,9 @@ const hasActiveFilters = computed(() => {
 const paginationRange = computed(() => {
     const rangeWithDots: (number | string)[] = [];
     
-    // Convert 0-indexed currentPage to 1-indexed for display
     const current = currentPage.value + 1;
     const total = totalPages.value;
     
-    // If total pages is 7 or less, show all pages
     if (total <= 7) {
         for (let i = 1; i <= total; i++) {
             rangeWithDots.push(i);
@@ -74,39 +88,31 @@ const paginationRange = computed(() => {
         return rangeWithDots;
     }
     
-    // Always show first page
     rangeWithDots.push(1);
     
-    // Calculate the range around current page
     let start = Math.max(2, current - 2);
     let end = Math.min(total - 1, current + 2);
     
-    // Adjust if we're near the beginning
     if (current <= 3) {
         end = 5;
     }
     
-    // Adjust if we're near the end
     if (current >= total - 2) {
         start = total - 4;
     }
     
-    // Add ellipsis after 1 if needed
     if (start > 2) {
         rangeWithDots.push('...');
     }
     
-    // Add the middle pages
     for (let i = start; i <= end; i++) {
         rangeWithDots.push(i);
     }
     
-    // Add ellipsis before last page if needed
     if (end < total - 1) {
         rangeWithDots.push('...');
     }
     
-    // Always show last page
     rangeWithDots.push(total);
     
     return rangeWithDots;
@@ -128,21 +134,15 @@ const getLawDocumentsAsync = async (
         if (searchTerm && searchTerm.trim()) params.search = searchTerm;
         if (lawType && lawType.trim()) params.documentTypes = lawType;
         
-        const response = await axios.get('https://localhost:8000/api/laws', { params });
+        const response = await axios.get('/api/laws', { params });
         
-        // Based on your description, API returns { count: number, [array of documents] }
-        // But looking at your sample data, it seems to be just an array
         if (response.data) {
-            // If it's an object with count and an array at index 0 or 1
             if (typeof response.data === 'object' && 'count' in response.data) {
-                // Find the documents array in the response
                 let documents: LawDocument[] = [];
                 
-                // Check if documents is a direct property
                 if (response.data.documents) {
                     documents = response.data.documents;
                 } else {
-                    // Check numeric keys (0, 1, etc.)
                     for (let key in response.data) {
                         if (key !== 'count' && Array.isArray(response.data[key])) {
                             documents = response.data[key];
@@ -185,24 +185,24 @@ const fetchDocuments = async (isNewSearch: boolean = false) => {
         totalDocuments.value = response.count;
         lawDocuments.value = response.documents;
         
-        // Don't clear selections when just changing pages
-        // Only clear on new search
         selectAll.value = false;
-    } catch (err) {
-        error.value = 'Failed to fetch law documents. Please try again.';
-        console.error('Error:', err);
+    } catch (err: any) {
+        if (err.response?.status !== 401) {
+            error.value = 'Failed to fetch law documents. Please try again.';
+            console.error('Error:', err);
+        }
         lawDocuments.value = [];
         totalDocuments.value = 0;
     } finally {
         loading.value = false;
         searching.value = false;
-        initialLoading.value = false; // Clear initial loading state
+        initialLoading.value = false;
     }
 };
 
 const handleSearch = () => {
-    currentPage.value = 0; // Reset to first page on new search
-    fetchDocuments(true);  // Pass true to indicate this is a search
+    currentPage.value = 0;
+    fetchDocuments(true);
 };
 
 const clearFilters = () => {
@@ -215,24 +215,20 @@ const clearFilters = () => {
 
 const openPDF = async (celex: string) => {
     try {
-        // Validate CELEX number format (basic validation)
         if (!/^[A-Za-z0-9_-]+$/.test(celex)) {
             console.error('Invalid CELEX format');
             alert('Invalid document identifier');
             return;
         }
         
-        const response = await axios.get(`https://localhost:8000/api/laws/${encodeURIComponent(celex)}/pdf`, {
+        const response = await axios.get(`/api/laws/${encodeURIComponent(celex)}/pdf`, {
             params: { lang: selectedLang.value },
-            timeout: 10000,
-            withCredentials: true
+            timeout: 10000
         });
         
         if (response.data && response.data.url) {
-            // Validate URL before opening
             try {
                 const url = new URL(response.data.url);
-                // Only allow https URLs from trusted domains
                 if (url.protocol === 'https:') {
                     window.open(response.data.url, '_blank', 'noopener,noreferrer');
                 } else {
@@ -243,9 +239,11 @@ const openPDF = async (celex: string) => {
                 alert('Failed to open PDF. Invalid URL received.');
             }
         }
-    } catch (error) {
-        console.error('Error fetching PDF URL:', error);
-        alert('Failed to open PDF. Please try again.');
+    } catch (error: any) {
+        if (error.response?.status !== 401) {
+            console.error('Error fetching PDF URL:', error);
+            alert('Failed to open PDF. Please try again.');
+        }
     }
 };
 
@@ -254,26 +252,51 @@ const downloadSelectedPDFs = async () => {
     
     downloading.value = true;
     error.value = null;
+    downloadProgress.value = 0;
+    
+    // Create new abort controller for this download
+    downloadAbortController.value = new AbortController();
     
     try {
         const celexNumbers = Array.from(selectedDocuments.value);
-        
-        // Validate all CELEX numbers
         const validCelexNumbers = celexNumbers.filter(celex => /^[A-Za-z0-9_-]+$/.test(celex));
         
         if (validCelexNumbers.length === 0) {
             throw new Error('No valid documents selected');
         }
-        
-        // Limit the number of documents to prevent abuse
-        const limitedCelexNumbers = validCelexNumbers.slice(0, 100);
-        
-        if (limitedCelexNumbers.length < validCelexNumbers.length) {
-            error.value = `Downloading first 100 documents of ${validCelexNumbers.length} selected`;
+        if (validCelexNumbers.length > 200) {
+            throw new Error('Too many documents selected (200 max)');
         }
         
-        const response = await axios.post('https://localhost:8000/api/laws/pdf', 
-            limitedCelexNumbers,
+        // Calculate estimated time (1.2 seconds per file)
+        estimatedTime.value = Math.ceil(validCelexNumbers.length * 1.2);
+        
+        // Start progress animation
+        let elapsedTime = 0;
+        const updateInterval = 3000; // Update every 3 seconds
+        const totalEstimatedMs = estimatedTime.value * 1000;
+        
+        progressInterval.value = setInterval(() => {
+            elapsedTime += updateInterval;
+            
+            // Calculate progress based on elapsed time
+            let progress = Math.floor((elapsedTime / totalEstimatedMs) * 100);
+            
+            // Stop at 96% to wait for actual response
+            if (progress >= 99) {
+                progress = 99;
+                if (progressInterval.value) {
+                    clearInterval(progressInterval.value);
+                    progressInterval.value = null;
+                }
+            }
+            
+            downloadProgress.value = progress;
+        }, updateInterval);
+        
+        // Make the actual API call with abort signal
+        const response = await axios.post('/api/laws/pdf', 
+            validCelexNumbers,
             { 
                 responseType: 'blob',
                 headers: {
@@ -282,20 +305,36 @@ const downloadSelectedPDFs = async () => {
                 params: {
                     lang: selectedLang.value
                 },
-                timeout: 300000, // 5 minute timeout for large downloads
-                withCredentials: true,
-                maxContentLength: 500 * 1024 * 1024, // 500MB max
-                validateStatus: (status) => status >= 200 && status < 300
+                timeout: 600000, // 10 minutes max
+                maxContentLength: 500 * 1024 * 1024,
+                validateStatus: (status) => status >= 200 && status < 300,
+                signal: downloadAbortController.value.signal  // Add abort signal
             }
         );
         
-        // Validate response type
+        // Clear interval if still running
+        if (progressInterval.value) {
+            clearInterval(progressInterval.value);
+            progressInterval.value = null;
+        }
+        
+        // Immediately set to 100% completion
+        downloadProgress.value = 100;
+        
+        // Wait a moment before proceeding (keeps progress bar visible at 100%)
+        await new Promise(resolve => setTimeout(resolve, 1000)); // 1 second delay
+        
+        // Verify response
+        if (!response.data || response.data.size === 0) {
+            throw new Error('Received empty file from server');
+        }
+        
         if (response.data.type !== 'application/zip' && !response.data.type.includes('zip')) {
             console.warn('Unexpected response type:', response.data.type);
         }
         
-        // Create blob link to download
-        const url = window.URL.createObjectURL(new Blob([response.data]));
+        // Create download link
+        const url = window.URL.createObjectURL(response.data);
         const link = document.createElement('a');
         link.href = url;
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-').substring(0, 19);
@@ -304,24 +343,97 @@ const downloadSelectedPDFs = async () => {
         link.click();
         link.remove();
         
-        // Clean up URL after a delay
         setTimeout(() => window.URL.revokeObjectURL(url), 100);
         
-        // Clear selections after download
+        // Clear selections
         selectedDocuments.value.clear();
         selectAll.value = false;
+        
+        // Keep progress at 100% for 2 seconds before resetting
+        setTimeout(() => {
+            downloadProgress.value = 0;
+            estimatedTime.value = 0;
+        }, 2000);
+        
     } catch (err: any) {
-        if (err.code === 'ECONNABORTED') {
-            error.value = 'Download timeout. Try selecting fewer documents.';
-        } else if (err.response?.status === 413) {
-            error.value = 'Too many documents selected. Please select fewer documents.';
-        } else {
-            error.value = 'Failed to download PDFs. Please try again.';
+        // Clear interval on error
+        if (progressInterval.value) {
+            clearInterval(progressInterval.value);
+            progressInterval.value = null;
         }
+        
+        // Reset progress
+        downloadProgress.value = 0;
+        estimatedTime.value = 0;
+        
+        // Handle errors including cancellation
+        if (axios.isCancel(err)) {
+            error.value = 'Download cancelled';
+            console.log('Download was cancelled by user');
+        } else if (err.message === 'No valid documents selected') {
+            error.value = 'No valid documents selected';
+        } else if (err.message === 'Too many documents selected (200 max)') {
+            error.value = 'Too many documents selected (200 max)';
+        } else if (err.message === 'Received empty file from server') {
+            error.value = 'Server returned an empty file. Please try again.';
+        } else if (err.response?.status === 401) {
+            // Let auth interceptor handle it
+            return;
+        } else if (err.response?.status === 413) {
+            error.value = 'File size too large. Please select fewer documents.';
+        } else if (err.response?.status === 400) {
+            error.value = 'Invalid request. Please check your selection.';
+        } else if (err.code === 'ECONNABORTED') {
+            error.value = 'Download timeout. Try selecting fewer documents.';
+        } else {
+            error.value = err.message || 'Failed to download PDFs. Please try again.';
+        }
+        
         console.error('Error downloading PDFs:', err);
     } finally {
         downloading.value = false;
+        downloadAbortController.value = null;  // Clean up
+        // Ensure interval is cleared
+        if (progressInterval.value) {
+            clearInterval(progressInterval.value);
+            progressInterval.value = null;
+        }
     }
+};
+
+// Cancel download function
+const cancelDownload = () => {
+    if (downloadAbortController.value) {
+        downloadAbortController.value.abort();
+        
+        // Clear the progress interval
+        if (progressInterval.value) {
+            clearInterval(progressInterval.value);
+            progressInterval.value = null;
+        }
+        
+        // Reset UI state
+        downloading.value = false;
+        downloadProgress.value = 0;
+        estimatedTime.value = 0;
+        error.value = 'Download cancelled';
+        
+        // Clean up abort controller
+        downloadAbortController.value = null;
+    }
+};
+
+// Helper function to format seconds to readable time
+const formatTime = (seconds: number): string => {
+    if (seconds < 60) {
+        return `${seconds} second${seconds !== 1 ? 's' : ''}`;
+    }
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = seconds % 60;
+    if (remainingSeconds === 0) {
+        return `${minutes} minute${minutes !== 1 ? 's' : ''}`;
+    }
+    return `${minutes} min ${remainingSeconds} sec`;
 };
 
 // Selection handlers
@@ -344,7 +456,6 @@ const toggleDocumentSelection = (celex: string) => {
         selectedDocuments.value.add(celex);
     }
     
-    // Update select all checkbox state
     selectAll.value = lawDocuments.value.length > 0 && 
                      lawDocuments.value.every(doc => selectedDocuments.value.has(doc.celex));
 };
@@ -360,7 +471,7 @@ const isSelected = (celex: string) => selectedDocuments.value.has(celex);
 const goToPage = (page: number | string) => {
     if (typeof page === 'number' && page >= 0 && page < totalPages.value) {
         currentPage.value = page;
-        fetchDocuments(false);  // Pass false for pagination
+        fetchDocuments(false);
     }
 };
 
@@ -379,13 +490,16 @@ const formatDate = (dateString: string): string => {
 };
 
 const logout = () => {
-    localStorage.clear();
+    localStorage.removeItem('jwt_token');
+    localStorage.removeItem('user_data');
+    localStorage.removeItem('authenticated');
     router.push('/');
 };
 
 // Lifecycle
 onMounted(() => {
-    fetchDocuments(false);  // Initial load is not a search
+    checkAuth();
+    fetchDocuments(false);
 });
 
 // Watch for page changes
@@ -460,14 +574,40 @@ watch([selectedDocuments], () => {
             {{ error }}
         </div>
 
-        <!-- Download Progress Message -->
+        <!-- Download Progress Message with Cancel Button -->
         <div v-if="downloading" class="download-progress">
             <div class="download-progress-content">
                 <div class="mini-spinner"></div>
-                <div>
-                    <strong>Downloading files...</strong>
-                    <p>This might take some time depending on the number of documents selected.</p>
+                <div class="progress-details">
+                    <strong>Downloading {{ selectedCount }} files...</strong>
+                    <p v-if="estimatedTime > 0">
+                        Estimated time: {{ formatTime(estimatedTime) }}
+                    </p>
+                    <p v-else>
+                        Preparing download...
+                    </p>
+                    
+                    <!-- Progress bar -->
+                    <div class="progress-bar-container">
+                        <div class="progress-bar">
+                            <div 
+                                class="progress-bar-fill" 
+                                :style="{ width: downloadProgress + '%' }"
+                            >
+                            </div>
+                        </div>
+                        <span class="progress-percentage">{{ downloadProgress }}%</span>
+                    </div>
+                    
+                    <!-- Status message -->
+                    <p class="progress-status" v-if="downloadProgress > 0 && downloadProgress < 100">
+                        {{ downloadProgress >= 96 ? 'Finalizing download...' : 'Processing files...' }}
+                    </p>
                 </div>
+                <!-- Cancel button -->
+                <button @click="cancelDownload" class="cancel-download-btn">
+                    Cancel
+                </button>
             </div>
         </div>
 
@@ -825,7 +965,6 @@ select {
 
 .download-progress-content {
     display: flex;
-    align-items: center;
     gap: 15px;
 }
 
@@ -836,6 +975,7 @@ select {
 }
 
 .mini-spinner {
+    margin-top: 12px;
     width: 24px;
     height: 24px;
     border: 3px solid rgba(0, 64, 133, 0.2);
@@ -843,6 +983,33 @@ select {
     border-top-color: #004085;
     animation: spin 1s linear infinite;
     flex-shrink: 0;
+}
+
+/* Cancel button */
+.cancel-download-btn {
+    height: 30px;
+    padding: 6px 16px;
+    background-color: #dc3545;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    transition: background-color 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+.cancel-download-btn:hover {
+    background-color: #c82333;
+}
+
+.cancel-download-btn svg {
+    width: 14px;
+    height: 14px;
 }
 
 @keyframes slideDown {
@@ -925,6 +1092,7 @@ select {
 
 .table-container {
     overflow-x: auto;
+    transition: opacity 0.3s ease;
 }
 
 .results-table {
@@ -1066,9 +1234,77 @@ select {
     box-shadow: 0 2px 8px rgba(0,0,0,0.1);
 }
 
-/* Table container opacity transition */
-.table-container {
-    transition: opacity 0.3s ease;
+/* Progress Bar */
+.progress-details {
+    flex: 1;
+}
+
+.progress-bar-container {
+    margin-top: 12px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.progress-bar {
+    flex: 1;
+    height: 24px;
+    background-color: #e9ecef;
+    border-radius: 12px;
+    overflow: hidden;
+    position: relative;
+    box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.progress-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #007bff, #0056b3);
+    transition: width 0.5s ease;
+    border-radius: 12px;
+    position: relative;
+    overflow: hidden;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+}
+
+.progress-bar-fill::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(
+        90deg,
+        transparent,
+        rgba(255, 255, 255, 0.4),
+        transparent
+    );
+    animation: shimmer 2s infinite;
+}
+
+@keyframes shimmer {
+    0% {
+        transform: translateX(-100%);
+    }
+    100% {
+        transform: translateX(100%);
+    }
+}
+
+.progress-percentage {
+    font-weight: 600;
+    color: #004085;
+    min-width: 50px;
+    text-align: right;
+    font-size: 16px;
+}
+
+.progress-status {
+    margin-top: 8px;
+    font-size: 13px;
+    color: #004085;
+    font-style: italic;
+    animation: pulse 1.5s ease-in-out infinite;
 }
 
 /* Responsive */
@@ -1112,6 +1348,12 @@ select {
     .download-progress-content {
         flex-direction: column;
         text-align: center;
+        align-items: stretch;
+    }
+    
+    .cancel-download-btn {
+        align-self: center;
+        margin-top: 10px;
     }
     
     .results-table {
@@ -1145,6 +1387,20 @@ select {
     
     .loading-text {
         font-size: 14px;
+    }
+    
+    .progress-bar-container {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 8px;
+    }
+    
+    .progress-percentage {
+        text-align: center;
+    }
+    
+    .progress-status {
+        text-align: center;
     }
 }
 </style>

@@ -17,9 +17,10 @@ public class LogEndpointsMiddleware
     {
         Stopwatch sw = new Stopwatch();
 
-        _logger.LogInformation("HTTP {Method} {Path} endpoint requested.",
+        _logger.LogInformation("HTTP {Method} {Path}{Query}",
                 context.Request.Method,
-                context.Request.Path);
+                context.Request.Path,
+                context.Request.QueryString);
 
         sw.Start();
         
@@ -27,7 +28,7 @@ public class LogEndpointsMiddleware
 
         sw.Stop();
 
-        _logger.LogInformation("HTTP {Method} {Path} endpoint responded with {StatusCode} ({Elapsed}ms)",
+        _logger.LogInformation("HTTP {Method} {Path} responded {StatusCode} in {Elapsed}ms",
                 context.Request.Method,
                 context.Request.Path,
                 context.Response.StatusCode,

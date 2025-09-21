@@ -42,7 +42,7 @@ public class LawDocumentService : ILawDocumentService
             await task;
 
             if (! await _lawDocumentRepository.IsSavedAsync())
-                throw new Exception(); // make new exceptions later, im tired now
+                throw new SavingChangesFailedException("Failed while saving law documents in database."); 
 
             sum += count;
             offset += limit;
@@ -66,73 +66,37 @@ public class LawDocumentService : ILawDocumentService
 
     public async Task<byte[]> GetLawDocumentFilesAsync(List<string> celexNumbers, string lang)
     {
-        _logger.LogInformation("Entering GetLawDocumentFilesAsync method in LawDocumentService.");
-        var swMain = Stopwatch.StartNew();
-
-        var results = new List<DownloadResult>();
+        _logger.LogInformation("Starting bulk download for {Count} documents", celexNumbers.Count);
+        var overallSw = Stopwatch.StartNew();
 
         int maxConcurrency = 10;
         var semaphore = new SemaphoreSlim(maxConcurrency);
 
-        var tasks = celexNumbers.Select(async celex => 
-        {
-            await semaphore.WaitAsync();
-            try
-            {
-                var sw = Stopwatch.StartNew();
-                _logger.LogInformation("Downloading PDF {Celex}", celex);
-
-                var fileBytes = await _lawClient.DownloadPdfAsync(celex, lang);
-
-                sw.Stop();
-                _logger.LogInformation("Downloaded PDF {Celex} in {Elapsed}ms", celex, sw.ElapsedMilliseconds);
-
-                return new DownloadResult()
-                {
-                    Celex = celex,
-                    Data = fileBytes,
-                    Success = true
-                };
-
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to download {Celex}", celex);
-                return new DownloadResult()
-                {
-                    Celex = celex,
-                    Data = new byte[0],
-                    Success = false
-                };
-            }
-            finally 
-            {
-                semaphore.Release();
-            }
-        });
-
+        var tasks = celexNumbers.Select(async celex => await DownloadLawDocument(celex, lang, semaphore));
         var files = await Task.WhenAll(tasks);
+
+        var successCount = files.Count(f => f.Success);
+        if (successCount < celexNumbers.Count())
+        {
+            _logger.LogWarning("Downloaded {Success}/{Total} documents successfully",
+                    successCount, celexNumbers.Count());
+        }
 
         using var zipStream = new MemoryStream();
         using var zip = new ZipArchive(zipStream, ZipArchiveMode.Create, true);
 
         foreach (var file in files)
         {
-            _logger.LogInformation("Started writing {Celex} to zip", file.Celex);
-            var sw = Stopwatch.StartNew();
-
             var entry = zip.CreateEntry($"document_{file.Celex}.pdf", CompressionLevel.Optimal);
             using var entryStream = entry.Open();
             await entryStream.WriteAsync(file.Data);
-
-            sw.Stop();
-            _logger.LogInformation("Finished writing {Celex} to zip", file.Celex);
-
         }
-        swMain.Stop();
-        _logger.LogInformation("All downloads and zipping finished in {Elapsed}ms", swMain.ElapsedMilliseconds);
 
-        return zipStream.ToArray();
+        var result = zipStream.ToArray();
+        _logger.LogInformation("Completed bulk download: {Count} files, {SizeMB}MB in {Elapsed}ms",
+                successCount, result.Length / (1024 * 1024), overallSw.ElapsedMilliseconds);
+
+        return result;
     }
 
     
@@ -144,5 +108,41 @@ public class LawDocumentService : ILawDocumentService
         string url = $"https://eur-lex.europa.eu/legal-content/{lang}/TXT/PDF/?uri=CELEX:{celex}";
 
         return url;
+    }
+
+    
+    private async Task<DownloadResult> DownloadLawDocument(string celex, string lang, SemaphoreSlim semaphore)
+    {
+        await semaphore.WaitAsync();
+        try
+        {
+            var sw = Stopwatch.StartNew();
+            var fileBytes = await _lawClient.DownloadPdfAsync(celex, lang);
+
+            _logger.LogDebug("Document downloaded: {Celex} took {Elapsed}ms",
+                    celex, sw.ElapsedMilliseconds);
+
+            return new DownloadResult()
+            {
+                Celex = celex,
+                Data = fileBytes,
+                Success = true
+            };
+
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to download {Celex}", celex);
+            return new DownloadResult()
+            {
+                Celex = celex,
+                Data = new byte[0],
+                Success = false
+            };
+        }
+        finally 
+        {
+            semaphore.Release();
+        }
     }
 }

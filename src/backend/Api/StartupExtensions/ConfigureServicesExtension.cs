@@ -12,7 +12,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
 using System.Security.Claims;
-using System.Net;
+using Api.Filters;
 
 namespace Api.StartupExtensions;
 
@@ -20,8 +20,10 @@ public static class ConfigureServicesExtension
 {
     public static IServiceCollection ConfigureServices(this IServiceCollection services, IConfiguration configuration)
     {
+        services.AddScoped<HandleExceptionsFilter>();
         services.AddControllers(options => 
         {
+            options.Filters.AddService<HandleExceptionsFilter>();
         });
 
         services.AddLogging();
@@ -129,18 +131,8 @@ public static class ConfigureServicesExtension
         {
             client.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0");
             client.DefaultRequestHeaders.Add("Accept", "application/pdf");
+            client.Timeout = TimeSpan.FromSeconds(120);
             client.DefaultRequestHeaders.ConnectionClose = false; // Keep connections alive
-        })
-        .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
-        {
-            MaxConnectionsPerServer = 100,  // Increase this!
-            EnableMultipleHttp2Connections = false, // EUR-Lex doesn't support HTTP/2
-            PooledConnectionLifetime = TimeSpan.FromMinutes(5),
-            PooledConnectionIdleTimeout = TimeSpan.FromMinutes(2),
-            AutomaticDecompression = DecompressionMethods.All,
-            UseProxy = false,  // Skip proxy if you don't need it
-            AllowAutoRedirect = true,
-            MaxAutomaticRedirections = 3
         });
 
         services.AddScoped<ILawDocumentRepository, LawDocumentRepository>();
