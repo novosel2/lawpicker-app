@@ -28,16 +28,11 @@ public class LawDocumentController : ControllerBase
     }
 
 
-    [HttpPost("pdf")]
+    [HttpPost("bulk-pdf")]
     public async Task<IActionResult> GetLawDocumentFiles(List<string> celexNumbers, string lang = "EN")
     {
-        Response.ContentType = "application/zip";
-        Response.Headers.Append("Content-Disposition", $"attachment; filename=documents_{DateTime.Now:yyyyMMdd}.zip");
-        
-        using var zip = new ZipArchive(Response.BodyWriter.AsStream(), ZipArchiveMode.Create, leaveOpen: false);
-
-        await _lawDocumentService.GetLawDocumentFilesAsync(celexNumbers, lang, zip);
-        return new EmptyResult();
+        Dictionary<string, string> pdfUrls = await _lawDocumentService.GetLawDocumentFilesAsync(celexNumbers, lang);
+        return Ok(pdfUrls);
     }
 
 

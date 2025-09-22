@@ -1,6 +1,5 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
-using System.IO.Compression;
 using Application.Dto;
 using Application.Exceptions;
 using Application.Interfaces.IClients;
@@ -66,196 +65,70 @@ public class LawDocumentService : ILawDocumentService
 
         return lawDocumentsResponse;
     }
-    public async Task GetLawDocumentFilesAsync(List<string> celexNumbers, string lang, ZipArchive zip)
+
+    public async Task<Dictionary<string, string>> GetLawDocumentFilesAsync(List<string> celexNumbers, string lang)
     {
         _logger.LogDebug("Starting bulk download for {Count} documents", celexNumbers.Count);
         var overallSw = Stopwatch.StartNew();
-        
+
         // Check cache status
-        var cacheStatus = await _storage.CheckBulkExistenceAsync(celexNumbers);
+        Dictionary<string, bool> cacheStatus = await _storage.CheckBulkExistenceAsync(celexNumbers, lang);
+        ConcurrentDictionary<string, string> pdfUrls = new ConcurrentDictionary<string, string>();
         var cached = celexNumbers.Where(c => cacheStatus[c]).ToList();
         var notCached = celexNumbers.Where(c => !cacheStatus[c]).ToList();
-        
-        _logger.LogInformation("Cache status: {Cached} cached, {NotCached} need download", 
+
+        _logger.LogInformation("Cache status: {Cached} cached, {NotCached} need download",
             cached.Count, notCached.Count);
-        
-        // Step 1: Download all missing documents in parallel
-        var downloadedFiles = new ConcurrentDictionary<string, Stream>();
-        var downloadSemaphore = new SemaphoreSlim(5); // Rate limit EUR-Lex
-        var cacheSemaphore = new SemaphoreSlim(20);
-        
-        var downloadTasks = notCached.Select(async celex =>
+
+        var semaphore = new SemaphoreSlim(10);
+
+        var downloadedCount = 0;
+        var totalCount = celexNumbers.Count;
+
+        var tasks = celexNumbers.Select(async celex =>
         {
-            await downloadSemaphore.WaitAsync();
+            await semaphore.WaitAsync();
             try
             {
-                using var stream = await DownloadLawDocument(celex, lang);
-                if (stream != null)
+                string? pdfUrl = null;
+                if (cacheStatus[celex])
                 {
-                    var sw = Stopwatch.StartNew();
+                    pdfUrl = await _storage.GetFromStorageAsync(celex, lang);
+                }
+                else
+                {
+                    Stream? pdfStream = await DownloadLawDocument(celex, lang);
+                    if (pdfStream != null)
+                    {
+                        pdfUrl = await _storage.StoreDocumentAsync(celex, lang, pdfStream);
+                    }
+                }
 
-                    // Copy to memory so the stream is usable after disposal
-                    using var ms = new MemoryStream();
-                    await stream.CopyToAsync(ms);
-                    ms.Position = 0;
-
-                    // Store a copy in memory for later use
-                    downloadedFiles[celex] = new MemoryStream(ms.ToArray());
-
-                    // Store to storage as well
-                    ms.Position = 0;
-                    await _storage.StoreDocumentAsync(celex, ms);
-
-                    _logger.LogDebug("{Celex} writing to memory took {Elapsed}ms", celex, sw.ElapsedMilliseconds);
+                if (!string.IsNullOrEmpty(pdfUrl))
+                {
+                    pdfUrls[celex] = pdfUrl;
+                    downloadedCount++;
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to download {Celex}", celex);
+                _logger.LogError(ex, "Failed to process document {Celex}", celex);
             }
             finally
             {
-                downloadSemaphore.Release();
+                semaphore.Release();
             }
         });
-        
-        await Task.WhenAll(downloadTasks);
-        
 
-        var cacheTasks = cached.Select(async celex =>
-        {
-            await cacheSemaphore.WaitAsync();
-            try
-            {
-                using var stream = await _storage.GetFromStorageAsync(celex);
-                if (stream != null)
-                {
-                    var sw = Stopwatch.StartNew();
+        await Task.WhenAll(tasks);
 
-                    // Copy to memory so the stream is usable after disposal
-                    using var ms = new MemoryStream();
-                    await stream.CopyToAsync(ms);
-                    ms.Position = 0;
+        _logger.LogInformation("Completed bulk download of {Total} documents in {Elapsed}ms",
+            downloadedCount, overallSw.ElapsedMilliseconds);
 
-                    // Store a copy in memory for later use
-                    downloadedFiles[celex] = new MemoryStream(ms.ToArray());
-
-                    _logger.LogDebug("{Celex} writing to memory took {Elapsed}ms", celex, sw.ElapsedMilliseconds);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to add cached document {Celex}", celex);
-            }
-            finally
-            {
-                cacheSemaphore.Release();
-            }
-        });
-        
-        await Task.WhenAll(cacheTasks);
-        
-        // Then add newly downloaded documents
-        foreach (var kvp in downloadedFiles)
-        {
-            _logger.LogDebug("Writing {Celex} to zip", kvp.Key);
-
-            var entry = zip.CreateEntry($"document_{kvp.Key}.pdf", CompressionLevel.Fastest);
-            using var entryStream = entry.Open();
-            await kvp.Value.CopyToAsync(entryStream);
-        }
-        
-        var totalSuccess = downloadedFiles.Count;
-        _logger.LogInformation("Completed bulk download: {Success}/{Total} documents in {Elapsed}ms",
-            totalSuccess, celexNumbers.Count, overallSw.ElapsedMilliseconds);
+        return pdfUrls.ToDictionary();
     }
-    // public async Task GetLawDocumentFilesAsync(List<string> celexNumbers, string lang, ZipArchive zip)
-    // {
-    //     _logger.LogDebug("Starting bulk download for {Count} documents", celexNumbers.Count);
-    //     var overallSw = Stopwatch.StartNew();
-    //
-    //     var tempFiles = new List<(string Celex, string TempFile)>();
-    //     var downloadTasks = new List<Task>();
-    //     int successCount = 0;
-    //     int maxConcurrency = 10;
-    //     var semaphore = new SemaphoreSlim(maxConcurrency);
-    //
-    //     foreach (var celex in celexNumbers)
-    //     {
-    //         await semaphore.WaitAsync();
-    //
-    //         if (await _storage.ExistsInCacheAsync(celex))
-    //         {
-    //             var sw = Stopwatch.StartNew();
-    //             _logger.LogDebug("Pulling {Celex} from cache", celex);
-    //
-    //             var entry = zip.CreateEntry($"document_{celex}.pdf", CompressionLevel.Fastest);
-    //             
-    //             var fileStream = await _storage.GetFromStorageAsync(celex);
-    //             if (fileStream != null)
-    //             {
-    //                 using var entryStream = entry.Open();
-    //                 await fileStream.CopyToAsync(entryStream);
-    //
-    //                 _logger.LogDebug("{Celex} pulled from storage in {Elapsed}ms", celex, sw.ElapsedMilliseconds);
-    //             }
-    //
-    //             semaphore.Release();
-    //             continue;
-    //         }
-    //
-    //         downloadTasks.Add(Task.Run(async () => 
-    //         {
-    //             var tempFile = Path.GetTempFileName();
-    //             using var documentStream = await DownloadLawDocument(celex, lang);
-    //
-    //             if (documentStream != null)
-    //             {
-    //                 using var fileStream = File.Create(tempFile);
-    //                 await documentStream.CopyToAsync(fileStream);
-    //
-    //                 lock (tempFiles)
-    //                     tempFiles.Add((celex, tempFile));
-    //
-    //                 await _storage.StoreDocumentAsync(celex, documentStream);
-    //
-    //                 successCount++;
-    //             }
-    //         }));
-    //
-    //         semaphore.Release();
-    //     }
-    //
-    //     await Task.WhenAll(downloadTasks);
-    //
-    //     try
-    //     {
-    //         foreach (var (celex, tempFile) in tempFiles)
-    //         {
-    //             var entry = zip.CreateEntry($"document_{celex}.pdf", CompressionLevel.Fastest);
-    //             
-    //             using var fileStream = File.OpenRead(tempFile);
-    //             using var entryStream = entry.Open();
-    //             await fileStream.CopyToAsync(entryStream);
-    //         }
-    //     }
-    //     finally
-    //     {
-    //         foreach (var (_, tempFile) in tempFiles)
-    //             try { File.Delete(tempFile); } catch { }
-    //     }
-    //
-    //     if (successCount < celexNumbers.Count())
-    //     {
-    //         _logger.LogWarning("Downloaded {Success}/{Total} documents successfully",
-    //                 successCount, celexNumbers.Count());
-    //     }
-    //
-    //     _logger.LogDebug("Completed bulk download: {Count} files in {Elapsed}ms",
-    //             successCount, overallSw.ElapsedMilliseconds);
-    // }
-
     
+
     public async Task<string> GetUrlByCelexAsync(string celex, string lang = "EN")
     {
         var lawDocument = await _lawDocumentRepository.GetLawDocumentByCelexAsync(celex)
@@ -271,8 +144,6 @@ public class LawDocumentService : ILawDocumentService
     {
         try
         {
-            _logger.LogDebug("Downloading document {Celex}", celex);
-
             var sw = Stopwatch.StartNew();
             var fileBytes = await _lawClient.DownloadPdfAsync(celex, lang);
 

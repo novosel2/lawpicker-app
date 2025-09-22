@@ -26,8 +26,8 @@ public interface ILawDocumentService
     /// </summary>
     /// <param name="celexNumbers">
     /// <param name="lang">Language code for the law document</param>
-    /// <param name="zip">Zip Archive the files will be stored into</param>
-    Task GetLawDocumentFilesAsync(List<string> celexNumbers, string lang, ZipArchive zip);
+    /// <returns>A dictionary of blob urls for documents</returns>
+    Task<Dictionary<string, string>> GetLawDocumentFilesAsync(List<string> celexNumbers, string lang);
 
     /// <summary>
     /// Gets a url for the specified celex

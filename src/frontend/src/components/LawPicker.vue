@@ -4,6 +4,8 @@ import { useRouter } from 'vue-router';
 import { languages, lawTypes } from '../store/lists';
 import axios from '../axios-config.ts';
 import DOMPurify from 'dompurify';
+import JSZip from 'jszip';
+import { saveAs } from 'file-saver';
 
 // Types
 interface LawDocument {
@@ -17,6 +19,10 @@ interface LawDocument {
 interface ApiResponse {
     count: number;
     documents: LawDocument[];
+}
+
+interface BulkPdfResponse {
+    [celex: string]: string; // Dictionary with CELEX as key and blob URL as value
 }
 
 interface SearchParams {
@@ -63,6 +69,9 @@ const initialLoading = ref(true);
 const downloadProgress = ref(0);
 const estimatedTime = ref(0);
 const progressInterval = ref<number | null>(null);
+const currentDownloadFile = ref<string>('');
+const downloadedFiles = ref(0);
+const totalFiles = ref(0);
 
 // Cancellation support
 const downloadAbortController = ref<AbortController | null>(null);
@@ -247,12 +256,23 @@ const openPDF = async (celex: string) => {
     }
 };
 
+// Helper function to download a file from blob URL
+const downloadFileFromBlob = async (blobUrl: string, fileName: string, signal?: AbortSignal): Promise<Blob> => {
+    const response = await fetch(blobUrl, { signal });
+    if (!response.ok) {
+        throw new Error(`Failed to download ${fileName}: ${response.statusText}`);
+    }
+    return await response.blob();
+};
+
 const downloadSelectedPDFs = async () => {
     if (!hasSelectedDocuments.value) return;
     
     downloading.value = true;
     error.value = null;
     downloadProgress.value = 0;
+    downloadedFiles.value = 0;
+    currentDownloadFile.value = '';
     
     // Create new abort controller for this download
     downloadAbortController.value = new AbortController();
@@ -268,12 +288,16 @@ const downloadSelectedPDFs = async () => {
             throw new Error('Too many documents selected (200 max)');
         }
         
-        // Calculate estimated time (1.2 seconds per file)
-        estimatedTime.value = Math.ceil(validCelexNumbers.length * 1.2);
+        totalFiles.value = validCelexNumbers.length;
         
-        // Start progress animation
+        // PHASE 1: API Processing with estimated time progress
+        // Calculate estimated time (2 seconds per file for API processing)
+        estimatedTime.value = Math.ceil(validCelexNumbers.length * 2);
+        currentDownloadFile.value = 'Processing request...';
+        
+        // Start progress animation for API processing
         let elapsedTime = 0;
-        const updateInterval = 3000; // Update every 3 seconds
+        const updateInterval = 800; // Update every 3 seconds
         const totalEstimatedMs = estimatedTime.value * 1000;
         
         progressInterval.value = setInterval(() => {
@@ -294,11 +318,10 @@ const downloadSelectedPDFs = async () => {
             downloadProgress.value = progress;
         }, updateInterval);
         
-        // Make the actual API call with abort signal
-        const response = await axios.post('/api/laws/pdf', 
+        // Make the API call to get blob URLs
+        const response = await axios.post('/api/laws/bulk-pdf', 
             validCelexNumbers,
             { 
-                responseType: 'blob',
                 headers: {
                     'Content-Type': 'application/json'
                 },
@@ -306,9 +329,7 @@ const downloadSelectedPDFs = async () => {
                     lang: selectedLang.value
                 },
                 timeout: 600000, // 10 minutes max
-                maxContentLength: 500 * 1024 * 1024,
-                validateStatus: (status) => status >= 200 && status < 300,
-                signal: downloadAbortController.value.signal  // Add abort signal
+                signal: downloadAbortController.value.signal
             }
         );
         
@@ -318,32 +339,86 @@ const downloadSelectedPDFs = async () => {
             progressInterval.value = null;
         }
         
-        // Immediately set to 100% completion
+        // Complete API phase at 100%
         downloadProgress.value = 100;
         
-        // Wait a moment before proceeding (keeps progress bar visible at 100%)
-        await new Promise(resolve => setTimeout(resolve, 1000)); // 1 second delay
+        // Wait a moment before starting file downloads
+        await new Promise(resolve => setTimeout(resolve, 500));
         
         // Verify response
-        if (!response.data || response.data.size === 0) {
-            throw new Error('Received empty file from server');
+        if (!response.data || typeof response.data !== 'object') {
+            throw new Error('Invalid response from server');
         }
         
-        if (response.data.type !== 'application/zip' && !response.data.type.includes('zip')) {
-            console.warn('Unexpected response type:', response.data.type);
+        const blobUrls: BulkPdfResponse = response.data;
+        
+        // PHASE 2: Download files from blob storage
+        // Reset for file download phase
+        downloadProgress.value = 0;
+        estimatedTime.value = 0; // No estimate for download phase
+        
+        const zip = new JSZip();
+        
+        // Download each PDF from blob storage and add to zip
+        const entries = Object.entries(blobUrls);
+        let successCount = 0;
+        let failedFiles: string[] = [];
+        
+        for (let i = 0; i < entries.length; i++) {
+            // Check if cancelled
+            if (downloadAbortController.value.signal.aborted) {
+                throw new Error('Download cancelled');
+            }
+            
+            const [celex, blobUrl] = entries[i];
+            currentDownloadFile.value = celex;
+            
+            try {
+                // Download the PDF from blob storage
+                const pdfBlob = await downloadFileFromBlob(
+                    blobUrl, 
+                    celex,
+                    downloadAbortController.value.signal
+                );
+                
+                // Add to zip
+                zip.file(`${celex}.pdf`, pdfBlob);
+                successCount++;
+                downloadedFiles.value = successCount;
+                
+                // Update progress
+                downloadProgress.value = Math.round((i + 1) / entries.length * 100);
+                
+            } catch (fileError: any) {
+                console.error(`Failed to download ${celex}:`, fileError);
+                failedFiles.push(celex);
+                // Continue with other files even if one fails
+            }
         }
         
-        // Create download link
-        const url = window.URL.createObjectURL(response.data);
-        const link = document.createElement('a');
-        link.href = url;
+        if (successCount === 0) {
+            throw new Error('Failed to download any files');
+        }
+        
+        // Set progress to 100% while generating zip
+        downloadProgress.value = 100;
+        currentDownloadFile.value = 'Generating ZIP file...';
+        
+        // Generate the zip file
+        const zipBlob = await zip.generateAsync({
+            type: 'blob',
+            compression: 'DEFLATE',
+            compressionOptions: { level: 6 }
+        });
+        
+        // Save the zip file
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-').substring(0, 19);
-        link.setAttribute('download', `laws_${timestamp}.zip`);
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
+        saveAs(zipBlob, `laws_${timestamp}.zip`);
         
-        setTimeout(() => window.URL.revokeObjectURL(url), 100);
+        // Show message if some files failed
+        if (failedFiles.length > 0) {
+            error.value = `Downloaded ${successCount} of ${entries.length} files. Failed: ${failedFiles.slice(0, 5).join(', ')}${failedFiles.length > 5 ? '...' : ''}`;
+        }
         
         // Clear selections
         selectedDocuments.value.clear();
@@ -353,6 +428,9 @@ const downloadSelectedPDFs = async () => {
         setTimeout(() => {
             downloadProgress.value = 0;
             estimatedTime.value = 0;
+            currentDownloadFile.value = '';
+            downloadedFiles.value = 0;
+            totalFiles.value = 0;
         }, 2000);
         
     } catch (err: any) {
@@ -365,17 +443,20 @@ const downloadSelectedPDFs = async () => {
         // Reset progress
         downloadProgress.value = 0;
         estimatedTime.value = 0;
+        currentDownloadFile.value = '';
+        downloadedFiles.value = 0;
+        totalFiles.value = 0;
         
         // Handle errors including cancellation
-        if (axios.isCancel(err)) {
+        if (err.message === 'Download cancelled' || err.name === 'AbortError') {
             error.value = 'Download cancelled';
             console.log('Download was cancelled by user');
         } else if (err.message === 'No valid documents selected') {
             error.value = 'No valid documents selected';
         } else if (err.message === 'Too many documents selected (200 max)') {
             error.value = 'Too many documents selected (200 max)';
-        } else if (err.message === 'Received empty file from server') {
-            error.value = 'Server returned an empty file. Please try again.';
+        } else if (err.message === 'Failed to download any files') {
+            error.value = 'Failed to download any files. Please check your connection and try again.';
         } else if (err.response?.status === 401) {
             // Let auth interceptor handle it
             return;
@@ -416,6 +497,9 @@ const cancelDownload = () => {
         downloading.value = false;
         downloadProgress.value = 0;
         estimatedTime.value = 0;
+        currentDownloadFile.value = '';
+        downloadedFiles.value = 0;
+        totalFiles.value = 0;
         error.value = 'Download cancelled';
         
         // Clean up abort controller
@@ -580,11 +664,21 @@ watch([selectedDocuments], () => {
                 <div class="mini-spinner"></div>
                 <div class="progress-details">
                     <strong>Downloading {{ selectedCount }} files...</strong>
+                    
+                    <!-- Show different info based on phase -->
                     <p v-if="estimatedTime > 0">
                         Estimated time: {{ formatTime(estimatedTime) }}
                     </p>
+                    <p v-else-if="currentDownloadFile && !currentDownloadFile.includes('Processing')">
+                        {{ currentDownloadFile.includes('Generating') ? currentDownloadFile : `Downloading: ${currentDownloadFile}` }}
+                    </p>
                     <p v-else>
-                        Preparing download...
+                        Processing request...
+                    </p>
+                    
+                    <!-- Show file progress only during download phase (not API phase) -->
+                    <p v-if="totalFiles > 0 && downloadedFiles > 0">
+                        Progress: {{ downloadedFiles }} / {{ totalFiles }} files
                     </p>
                     
                     <!-- Progress bar -->
@@ -601,7 +695,12 @@ watch([selectedDocuments], () => {
                     
                     <!-- Status message -->
                     <p class="progress-status" v-if="downloadProgress > 0 && downloadProgress < 100">
-                        {{ downloadProgress >= 96 ? 'Finalizing download...' : 'Processing files...' }}
+                        <template v-if="estimatedTime > 0">
+                            {{ downloadProgress >= 96 ? 'Finalizing request...' : 'Processing files...' }}
+                        </template>
+                        <template v-else>
+                            {{ downloadProgress >= 95 ? 'Finalizing download...' : 'Downloading files from cloud storage...' }}
+                        </template>
                     </p>
                 </div>
                 <!-- Cancel button -->

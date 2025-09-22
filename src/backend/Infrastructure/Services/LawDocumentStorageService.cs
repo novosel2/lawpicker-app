@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using Application.Interfaces.IServices;
 using Azure.Storage.Blobs;
-using Azure.Storage.Blobs.Models;
+using Azure.Storage.Sas;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using StackExchange.Redis;
@@ -13,7 +13,6 @@ public class LawDocumentStorageService : ILawDocumentStorageService
     private readonly BlobContainerClient _blobContainer;
     private readonly IConnectionMultiplexer _redis;
     private readonly ILogger<LawDocumentStorageService> _logger;
-    private const string REDIS_SET = "lawdocs:cached";
     private const string CONTAINER_NAME = "lawscontainer";
 
     public LawDocumentStorageService(IConfiguration configuration, ILogger<LawDocumentStorageService> logger)
@@ -29,27 +28,25 @@ public class LawDocumentStorageService : ILawDocumentStorageService
         var redisConnectionString = configuration.GetConnectionString("Redis");
 
         _redis = ConnectionMultiplexer.Connect(redisConnectionString!);
-        
-        _logger.LogInformation("LawDocumentStorageService initialized successfully");
     }
 
 
-    public async Task<bool> ExistsInCacheAsync(string celexNumber)
+    public async Task<bool> ExistsInCacheAsync(string celexNumber, string lang)
     {
         var db = _redis.GetDatabase();
 
-        return await db.SetContainsAsync(REDIS_SET, celexNumber);
+        return await db.KeyExistsAsync($"doc:{celexNumber}@{lang}");
     }
 
 
-    public async Task<Stream?> GetFromStorageAsync(string celexNumber)
+    public async Task<string?> GetFromStorageAsync(string celexNumber, string lang)
     {
         try
         {
             var sw = Stopwatch.StartNew();
-            _logger.LogDebug("Pulling {Celex} from cache", celexNumber);
 
-            var blobClient = _blobContainer.GetBlobClient($"{celexNumber}.pdf");
+            var blobClient = _blobContainer.GetBlobClient($"{celexNumber}@{lang}.pdf");
+            var db = _redis.GetDatabase();
 
             if (!await blobClient.ExistsAsync())
             {
@@ -57,14 +54,16 @@ public class LawDocumentStorageService : ILawDocumentStorageService
                 return null;
             }
 
-            var file = await blobClient.OpenReadAsync(new BlobOpenReadOptions(allowModifications: false)
-            {
-                BufferSize = 16 * 1024,
-                Position = 0
-            });
+            string key = $"doc:{celexNumber}@{lang}";
+            string? url = await db.StringGetAsync(key);
 
-            _logger.LogDebug("{Celex} pulled from cache in {Estimated}", celexNumber, sw.ElapsedMilliseconds);
-            return file;
+            if (!string.IsNullOrEmpty(url))
+            {
+                await db.KeyExpireAsync(key, TimeSpan.FromDays(7));
+            }
+
+            _logger.LogDebug("{Celex} pulled from cache in {Estimated}ms", celexNumber, sw.ElapsedMilliseconds);
+            return url;
         }
         catch (Exception ex)
         {
@@ -74,35 +73,41 @@ public class LawDocumentStorageService : ILawDocumentStorageService
     }
 
 
-    public async Task StoreDocumentAsync(string celexNumber, Stream content)
+    public async Task<string?> StoreDocumentAsync(string celexNumber, string lang, Stream content)
     {
         try
         {
-            var blobClient = _blobContainer.GetBlobClient($"{celexNumber}.pdf");
+            var sw = Stopwatch.StartNew();
+
+            var blobClient = _blobContainer.GetBlobClient($"{celexNumber}@{lang}.pdf");
             content.Position = 0;
             await blobClient.UploadAsync(content, overwrite: true);
 
-            var db = _redis.GetDatabase();
-            await db.SetAddAsync(REDIS_SET, celexNumber);
+            Uri url = blobClient.GenerateSasUri(BlobSasPermissions.Read, DateTimeOffset.UtcNow.AddDays(7));
+            string key = $"doc:{celexNumber}@{lang}";
 
-            _logger.LogInformation("Cached document {Celex}", celexNumber);
+            var db = _redis.GetDatabase();
+            await db.StringSetAsync(key, url.ToString(), TimeSpan.FromDays(7));
+
+            _logger.LogInformation("Document cached: {Celex} took {Estimated}ms", celexNumber, sw.ElapsedMilliseconds);
+            return url.ToString();
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error storing document {Celex}", celexNumber);
-            throw;
+            return null;
         }
     }
 
 
-    public async Task<Dictionary<string, bool>> CheckBulkExistenceAsync(List<string> celexNumbers)
+    public async Task<Dictionary<string, bool>> CheckBulkExistenceAsync(List<string> celexNumbers, string lang)
     {
         var db = _redis.GetDatabase();
         var results = new Dictionary<string, bool>();
         
         foreach (var celex in celexNumbers)
         {
-            results[celex] = await db.SetContainsAsync($"{REDIS_SET}", celex);
+            results[celex] = await db.KeyExistsAsync($"doc:{celex}@{lang}");
         }
         
         return results;
