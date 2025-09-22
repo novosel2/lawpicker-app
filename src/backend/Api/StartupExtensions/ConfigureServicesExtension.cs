@@ -13,6 +13,7 @@ using Microsoft.IdentityModel.Tokens;
 using System.Text;
 using System.Security.Claims;
 using Api.Filters;
+using Infrastructure.Services;
 
 namespace Api.StartupExtensions;
 
@@ -39,6 +40,15 @@ public static class ConfigureServicesExtension
                 .AllowCredentials();
             });
         });
+
+        services.AddHealthChecks()
+            .AddAzureBlobStorage(
+                    connectionString: configuration.GetConnectionString("AzureStorage")!,
+                    name: "azure-blob-storage")
+            .AddRedis(
+                    configuration.GetConnectionString("Redis")!,
+                    name: "redis");
+
 
         // Add Swagger configuration with JWT Bearer authentication
         services.AddSwaggerGen(option =>
@@ -138,6 +148,7 @@ public static class ConfigureServicesExtension
         services.AddScoped<ILawDocumentRepository, LawDocumentRepository>();
 
         services.AddScoped<ILawDocumentService, LawDocumentService>();
+        services.AddScoped<ILawDocumentStorageService, LawDocumentStorageService>();
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<ITokenService, TokenService>();
         services.AddScoped<ICurrentUserService, CurrentUserService>();

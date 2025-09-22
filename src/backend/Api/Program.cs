@@ -41,6 +41,7 @@ app.UseSwagger();
 app.UseSwaggerUI();
 
 app.UseCors("newPolicy");
+app.MapHealthChecks("/health");
 
 app.UseRouting();
 

@@ -1,5 +1,5 @@
+using System.IO.Compression;
 using Application.Dto;
-using Domain.Entities;
 
 namespace Application.Interfaces.IServices;
 
@@ -26,8 +26,8 @@ public interface ILawDocumentService
     /// </summary>
     /// <param name="celexNumbers">
     /// <param name="lang">Language code for the law document</param>
-    /// <returns>Returns byte array of pdf files</returns>
-    Task<byte[]> GetLawDocumentFilesAsync(List<string> celexNumbers, string lang);
+    /// <param name="zip">Zip Archive the files will be stored into</param>
+    Task GetLawDocumentFilesAsync(List<string> celexNumbers, string lang, ZipArchive zip);
 
     /// <summary>
     /// Gets a url for the specified celex

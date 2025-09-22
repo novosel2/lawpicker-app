@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using Application.Interfaces.IServices;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -30,8 +31,13 @@ public class LawDocumentController : ControllerBase
     [HttpPost("pdf")]
     public async Task<IActionResult> GetLawDocumentFiles(List<string> celexNumbers, string lang = "EN")
     {
-        var pdfBytes = await _lawDocumentService.GetLawDocumentFilesAsync(celexNumbers, lang);
-        return File(pdfBytes, "application/zip", "PDFs.zip");
+        Response.ContentType = "application/zip";
+        Response.Headers.Append("Content-Disposition", $"attachment; filename=documents_{DateTime.Now:yyyyMMdd}.zip");
+        
+        using var zip = new ZipArchive(Response.BodyWriter.AsStream(), ZipArchiveMode.Create, leaveOpen: false);
+
+        await _lawDocumentService.GetLawDocumentFilesAsync(celexNumbers, lang, zip);
+        return new EmptyResult();
     }
 
 

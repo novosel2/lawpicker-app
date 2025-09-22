@@ -58,10 +58,19 @@ WHERE {{
     
     # Filter to only include documents with CELEX identifiers
     FILTER(STRSTARTS(STR(?celexUri), ""http://publications.europa.eu/resource/celex/""))
-    
-    # Only include actual legal acts (Directives, Regulations, Decisions)
-    FILTER(?type IN (""L"", ""R"", ""D""))
-    
+
+    # Include all legal acts that could contain employment, cross-border compliance, and contract law
+    FILTER(?type IN (
+        ""L"",    # Directives
+        ""R"",    # Regulations  
+        ""D"",    # Decisions (with or without addressee)
+        ""E"",    # CFSP: common positions, joint actions, common strategies
+        ""F"",    # Police and judicial cooperation in criminal matters
+        ""A"",    # Agreements (both international agreements and Member State agreements)
+        ""H"",    # Recommendations
+        ""S""     # ECSC Decisions of general interest
+    ))
+
     # Ensure law has entered into force (if date exists)
     FILTER(!BOUND(?entryDate) || ?entryDate <= NOW())
     
@@ -105,11 +114,11 @@ LIMIT {limit}
         return lawDocuments;
     }
 
-    public async Task<byte[]> DownloadPdfAsync(string celex, string lang)
+    public async Task<Stream> DownloadPdfAsync(string celex, string lang)
     {
         var response = await _httpClient.GetAsync($"{eurLexUrl}/{lang}/TXT/PDF/?uri=CELEX:{celex}");
         response.EnsureSuccessStatusCode();
 
-        return await response.Content.ReadAsByteArrayAsync();
+        return await response.Content.ReadAsStreamAsync();
     }
 }

@@ -96,18 +96,40 @@ const languages = [
         Name: "Swedish"
     }
 ];
+
 const lawTypes = [
-    {
-        Code: "D",
-        Name: "Decision"
-    },
+    // Core Legal Acts (Sector 3)
     {
         Code: "R",
         Name: "Regulation"
     },
     {
-        Code: "L",
+        Code: "L", 
         Name: "Directive"
+    },
+    {
+        Code: "D",
+        Name: "Decision"
+    },
+    {
+        Code: "E",
+        Name: "CFSP Common Position/Joint Action"
+    },
+    {
+        Code: "F",
+        Name: "Police and Judicial Cooperation"
+    },
+    {
+        Code: "S",
+        Name: "ECSC Decision of General Interest"
+    },
+    {
+        Code: "H",
+        Name: "Recommendation"
+    },
+    {
+        Code: "A",
+        Name: "Opinion"
     }
 ]
 

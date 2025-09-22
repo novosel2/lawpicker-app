@@ -8,8 +8,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Azure.Storage.Blobs" Version="12.25.0" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="9.0.9" />
     <PackageReference Include="PuppeteerSharp" Version="20.2.2" />
+    <PackageReference Include="StackExchange.Redis" Version="2.9.17" />
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.14.0" />
   </ItemGroup>
 
