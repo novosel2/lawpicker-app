@@ -1,5 +1,7 @@
+using System.Net;
 using System.Text.Json;
 using Application.Interfaces.IClients;
+using Application.Interfaces.IRepositories;
 using Domain.Entities;
 using Microsoft.Extensions.Logging;
 
@@ -9,13 +11,16 @@ public class LawDocumentClient : ILawDocumentClient
 {
     private readonly HttpClient _httpClient;
     private readonly ILogger<LawDocumentClient> _logger;
+    private readonly ILawDocumentRepository _lawDocumentRepository;
     private readonly string sparqlUrl = "https://publications.europa.eu/webapi/rdf/sparql";
     private readonly string eurLexUrl = "https://eur-lex.europa.eu/legal-content";
 
-    public LawDocumentClient(HttpClient httpClient, ILogger<LawDocumentClient> logger)
+    public LawDocumentClient(HttpClient httpClient, ILogger<LawDocumentClient> logger,
+            ILawDocumentRepository lawDocumentRepository)
     {
         _httpClient = httpClient;
         _logger = logger;
+        _lawDocumentRepository = lawDocumentRepository;
     }
 
     public async Task<List<LawDocument>> GetLawsAsync(int limit, int offset)
@@ -99,7 +104,6 @@ LIMIT {limit}
             {
                 LawDocument lawDocument = new LawDocument()
                 {
-                    Id = Guid.NewGuid(),
                     Celex = item.GetProperty("celexNumber").GetProperty("value").ToString(),
                     Type = Char.Parse(item.GetProperty("type").GetProperty("value").ToString()),
                     Date = DateOnly.Parse(item.GetProperty("dateDocument").GetProperty("value").ToString()),
@@ -113,10 +117,12 @@ LIMIT {limit}
         return lawDocuments;
     }
 
-    public async Task<Stream> DownloadPdfAsync(string celex, string lang)
+    public async Task<Stream?> DownloadPdfAsync(string celex, string lang)
     {
         var response = await _httpClient.GetAsync($"{eurLexUrl}/{lang}/TXT/PDF/?uri=CELEX:{celex}");
-        response.EnsureSuccessStatusCode();
+
+        if (!response.IsSuccessStatusCode)
+            return null;
 
         return await response.Content.ReadAsStreamAsync();
     }

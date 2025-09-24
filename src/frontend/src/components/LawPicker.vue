@@ -21,15 +21,28 @@ interface ApiResponse {
     documents: LawDocument[];
 }
 
-interface BulkPdfResponse {
-    [celex: string]: string; // Dictionary with CELEX as key and blob URL as value
+interface PdfResponse {
+    celex: string;
+    url: string | null;
+    problem: string | null;
+    availableLanguages: string[] | null;
+    requestedLanguage: string;
+    isSuccess: boolean;
 }
 
 interface SearchParams {
     page: number;
     limit: number;
+    lang: string;
     search?: string;
     documentTypes?: string;
+}
+
+interface FailedDocument {
+    celex: string;
+    problem: string;
+    availableLanguages: string[];
+    originalTitle?: string;
 }
 
 // Router
@@ -72,6 +85,20 @@ const progressInterval = ref<number | null>(null);
 const currentDownloadFile = ref<string>('');
 const downloadedFiles = ref(0);
 const totalFiles = ref(0);
+
+// Language selection modal
+const showLanguageModal = ref(false);
+const languageModalData = ref<{
+    celex: string;
+    title?: string;
+    availableLanguages: string[];
+    callback?: (lang: string) => void;
+} | null>(null);
+
+// Failed documents modal
+const showFailedModal = ref(false);
+const failedDocuments = ref<FailedDocument[]>([]);
+const selectedFailedDocs = ref<Map<string, string>>(new Map());
 
 // Cancellation support
 const downloadAbortController = ref<AbortController | null>(null);
@@ -131,13 +158,15 @@ const paginationRange = computed(() => {
 const getLawDocumentsAsync = async (
     searchTerm: string | null,
     lawType: string | null,
+    lang: string,
     page: number,
     itemLimit: number
 ): Promise<ApiResponse> => {
     try {
         const params: SearchParams = {
             page,
-            limit: itemLimit
+            limit: itemLimit,
+            lang: lang
         };
         
         if (searchTerm && searchTerm.trim()) params.search = searchTerm;
@@ -187,6 +216,7 @@ const fetchDocuments = async (isNewSearch: boolean = false) => {
         const response = await getLawDocumentsAsync(
             search.value || null,
             selectedLawType.value || null,
+            selectedLang.value,
             currentPage.value,
             limit.value
         );
@@ -224,22 +254,18 @@ const clearFilters = () => {
 
 const openPDF = async (celex: string) => {
     try {
-        if (!/^[A-Za-z0-9_-]+$/.test(celex)) {
-            console.error('Invalid CELEX format');
-            alert('Invalid document identifier');
-            return;
-        }
-        
         const response = await axios.get(`/api/laws/${encodeURIComponent(celex)}/pdf`, {
             params: { lang: selectedLang.value },
             timeout: 10000
         });
         
-        if (response.data && response.data.url) {
+        const data: PdfResponse = response.data;
+        
+        if (data.isSuccess && data.url) {
             try {
-                const url = new URL(response.data.url);
+                const url = new URL(data.url);
                 if (url.protocol === 'https:') {
-                    window.open(response.data.url, '_blank', 'noopener,noreferrer');
+                    window.open(data.url, '_blank', 'noopener,noreferrer');
                 } else {
                     throw new Error('Invalid URL protocol');
                 }
@@ -247,6 +273,34 @@ const openPDF = async (celex: string) => {
                 console.error('Invalid URL received:', urlError);
                 alert('Failed to open PDF. Invalid URL received.');
             }
+        } else if (!data.isSuccess && data.availableLanguages && data.availableLanguages.length > 0) {
+            // Show language selection modal
+            const doc = lawDocuments.value.find(d => d.celex === celex);
+            languageModalData.value = {
+                celex: celex,
+                title: doc?.title,
+                availableLanguages: data.availableLanguages,
+                callback: async (lang: string) => {
+                    try {
+                        const retryResponse = await axios.get(`/api/laws/${encodeURIComponent(celex)}/pdf`, {
+                            params: { lang: lang },
+                            timeout: 10000
+                        });
+                        
+                        if (retryResponse.data.isSuccess && retryResponse.data.url) {
+                            window.open(retryResponse.data.url, '_blank', 'noopener,noreferrer');
+                        } else {
+                            alert('Failed to open PDF in selected language.');
+                        }
+                    } catch (err) {
+                        console.error('Error fetching PDF:', err);
+                        alert('Failed to open PDF. Please try again.');
+                    }
+                }
+            };
+            showLanguageModal.value = true;
+        } else {
+            alert(data.problem || 'This document is not available.');
         }
     } catch (error: any) {
         if (error.response?.status !== 401) {
@@ -256,13 +310,16 @@ const openPDF = async (celex: string) => {
     }
 };
 
-// Helper function to download a file from blob URL
-const downloadFileFromBlob = async (blobUrl: string, fileName: string, signal?: AbortSignal): Promise<Blob> => {
-    const response = await fetch(blobUrl, { signal });
-    if (!response.ok) {
-        throw new Error(`Failed to download ${fileName}: ${response.statusText}`);
+const selectLanguage = (lang: string) => {
+    if (languageModalData.value?.callback) {
+        languageModalData.value.callback(lang);
     }
-    return await response.blob();
+    closeLanguageModal();
+};
+
+const closeLanguageModal = () => {
+    showLanguageModal.value = false;
+    languageModalData.value = null;
 };
 
 const downloadSelectedPDFs = async () => {
@@ -273,6 +330,7 @@ const downloadSelectedPDFs = async () => {
     downloadProgress.value = 0;
     downloadedFiles.value = 0;
     currentDownloadFile.value = '';
+    failedDocuments.value = [];
     
     // Create new abort controller for this download
     downloadAbortController.value = new AbortController();
@@ -290,23 +348,19 @@ const downloadSelectedPDFs = async () => {
         
         totalFiles.value = validCelexNumbers.length;
         
-        // PHASE 1: API Processing with estimated time progress
-        // Calculate estimated time (2 seconds per file for API processing)
+        // PHASE 1: API Processing
         estimatedTime.value = Math.ceil(validCelexNumbers.length * 2);
         currentDownloadFile.value = 'Processing request...';
         
-        // Start progress animation for API processing
+        // Start progress animation
         let elapsedTime = 0;
-        const updateInterval = 800; // Update every 3 seconds
+        const updateInterval = 800;
         const totalEstimatedMs = estimatedTime.value * 1000;
         
         progressInterval.value = setInterval(() => {
             elapsedTime += updateInterval;
-            
-            // Calculate progress based on elapsed time
             let progress = Math.floor((elapsedTime / totalEstimatedMs) * 100);
             
-            // Stop at 96% to wait for actual response
             if (progress >= 99) {
                 progress = 99;
                 if (progressInterval.value) {
@@ -318,7 +372,7 @@ const downloadSelectedPDFs = async () => {
             downloadProgress.value = progress;
         }, updateInterval);
         
-        // Make the API call to get blob URLs
+        // Make the API call
         const response = await axios.post('/api/laws/bulk-pdf', 
             validCelexNumbers,
             { 
@@ -328,7 +382,7 @@ const downloadSelectedPDFs = async () => {
                 params: {
                     lang: selectedLang.value
                 },
-                timeout: 600000, // 10 minutes max
+                timeout: 600000,
                 signal: downloadAbortController.value.signal
             }
         );
@@ -339,92 +393,94 @@ const downloadSelectedPDFs = async () => {
             progressInterval.value = null;
         }
         
-        // Complete API phase at 100%
         downloadProgress.value = 100;
-        
-        // Wait a moment before starting file downloads
         await new Promise(resolve => setTimeout(resolve, 500));
         
-        // Verify response
-        if (!response.data || typeof response.data !== 'object') {
-            throw new Error('Invalid response from server');
-        }
+        // Process response
+        const pdfResponses: PdfResponse[] = response.data;
         
-        const blobUrls: BulkPdfResponse = response.data;
+        // Separate successful and failed documents
+        const successfulDocs = pdfResponses.filter(r => r.isSuccess && r.url);
+        const failedDocs = pdfResponses.filter(r => !r.isSuccess);
         
-        // PHASE 2: Download files from blob storage
-        // Reset for file download phase
-        downloadProgress.value = 0;
-        estimatedTime.value = 0; // No estimate for download phase
-        
-        const zip = new JSZip();
-        
-        // Download each PDF from blob storage and add to zip
-        const entries = Object.entries(blobUrls);
-        let successCount = 0;
-        let failedFiles: string[] = [];
-        
-        for (let i = 0; i < entries.length; i++) {
-            // Check if cancelled
-            if (downloadAbortController.value.signal.aborted) {
-                throw new Error('Download cancelled');
-            }
-            
-            const [celex, blobUrl] = entries[i];
-            currentDownloadFile.value = celex;
-            
-            try {
-                // Download the PDF from blob storage
-                const pdfBlob = await downloadFileFromBlob(
-                    blobUrl, 
-                    celex,
-                    downloadAbortController.value.signal
-                );
-                
-                // Add to zip
-                zip.file(`${celex}.pdf`, pdfBlob);
-                successCount++;
-                downloadedFiles.value = successCount;
-                
-                // Update progress
-                downloadProgress.value = Math.round((i + 1) / entries.length * 100);
-                
-            } catch (fileError: any) {
-                console.error(`Failed to download ${celex}:`, fileError);
-                failedFiles.push(celex);
-                // Continue with other files even if one fails
-            }
-        }
-        
-        if (successCount === 0) {
-            throw new Error('Failed to download any files');
-        }
-        
-        // Set progress to 100% while generating zip
-        downloadProgress.value = 100;
-        currentDownloadFile.value = 'Generating ZIP file...';
-        
-        // Generate the zip file
-        const zipBlob = await zip.generateAsync({
-            type: 'blob',
-            compression: 'DEFLATE',
-            compressionOptions: { level: 6 }
+        // Store failed documents for later retry
+        failedDocuments.value = failedDocs.map(doc => {
+            const lawDoc = lawDocuments.value.find(d => d.celex === doc.celex);
+            return {
+                celex: doc.celex,
+                problem: doc.problem || 'Document not available',
+                availableLanguages: doc.availableLanguages || [],
+                originalTitle: lawDoc?.title
+            };
         });
         
-        // Save the zip file
-        const timestamp = new Date().toISOString().replace(/[:.]/g, '-').substring(0, 19);
-        saveAs(zipBlob, `laws_${timestamp}.zip`);
+        // PHASE 2: Download successful files
+        if (successfulDocs.length > 0) {
+            downloadProgress.value = 0;
+            estimatedTime.value = 0;
+            
+            const zip = new JSZip();
+            let successCount = 0;
+            
+            for (let i = 0; i < successfulDocs.length; i++) {
+                if (downloadAbortController.value.signal.aborted) {
+                    throw new Error('Download cancelled');
+                }
+                
+                const doc = successfulDocs[i];
+                currentDownloadFile.value = doc.celex;
+                
+                try {
+                    const response = await fetch(doc.url!, { 
+                        signal: downloadAbortController.value.signal 
+                    });
+                    
+                    if (!response.ok) {
+                        throw new Error(`Failed to download ${doc.celex}`);
+                    }
+                    
+                    const blob = await response.blob();
+                    zip.file(`${doc.celex}.pdf`, blob);
+                    successCount++;
+                    downloadedFiles.value = successCount;
+                    downloadProgress.value = Math.round((i + 1) / successfulDocs.length * 100);
+                    
+                } catch (fileError: any) {
+                    console.error(`Failed to download ${doc.celex}:`, fileError);
+                    failedDocuments.value.push({
+                        celex: doc.celex,
+                        problem: 'Download failed',
+                        availableLanguages: [],
+                        originalTitle: lawDocuments.value.find(d => d.celex === doc.celex)?.title
+                    });
+                }
+            }
+            
+            if (successCount > 0) {
+                downloadProgress.value = 100;
+                currentDownloadFile.value = 'Generating ZIP file...';
+                
+                const zipBlob = await zip.generateAsync({
+                    type: 'blob',
+                    compression: 'DEFLATE',
+                    compressionOptions: { level: 6 }
+                });
+                
+                const timestamp = new Date().toISOString().replace(/[:.]/g, '-').substring(0, 19);
+                saveAs(zipBlob, `laws_${timestamp}.zip`);
+            }
+        }
         
-        // Show message if some files failed
-        if (failedFiles.length > 0) {
-            error.value = `Downloaded ${successCount} of ${entries.length} files. Failed: ${failedFiles.slice(0, 5).join(', ')}${failedFiles.length > 5 ? '...' : ''}`;
+        // Show failed documents modal if any failed
+        if (failedDocuments.value.length > 0) {
+            showFailedModal.value = true;
+            error.value = `Downloaded ${successfulDocs.length} of ${pdfResponses.length} documents. ${failedDocuments.value.length} failed.`;
         }
         
         // Clear selections
         selectedDocuments.value.clear();
         selectAll.value = false;
         
-        // Keep progress at 100% for 2 seconds before resetting
         setTimeout(() => {
             downloadProgress.value = 0;
             estimatedTime.value = 0;
@@ -434,38 +490,21 @@ const downloadSelectedPDFs = async () => {
         }, 2000);
         
     } catch (err: any) {
-        // Clear interval on error
         if (progressInterval.value) {
             clearInterval(progressInterval.value);
             progressInterval.value = null;
         }
         
-        // Reset progress
         downloadProgress.value = 0;
         estimatedTime.value = 0;
         currentDownloadFile.value = '';
         downloadedFiles.value = 0;
         totalFiles.value = 0;
         
-        // Handle errors including cancellation
         if (err.message === 'Download cancelled' || err.name === 'AbortError') {
             error.value = 'Download cancelled';
-            console.log('Download was cancelled by user');
-        } else if (err.message === 'No valid documents selected') {
-            error.value = 'No valid documents selected';
-        } else if (err.message === 'Too many documents selected (200 max)') {
-            error.value = 'Too many documents selected (200 max)';
-        } else if (err.message === 'Failed to download any files') {
-            error.value = 'Failed to download any files. Please check your connection and try again.';
         } else if (err.response?.status === 401) {
-            // Let auth interceptor handle it
             return;
-        } else if (err.response?.status === 413) {
-            error.value = 'File size too large. Please select fewer documents.';
-        } else if (err.response?.status === 400) {
-            error.value = 'Invalid request. Please check your selection.';
-        } else if (err.code === 'ECONNABORTED') {
-            error.value = 'Download timeout. Try selecting fewer documents.';
         } else {
             error.value = err.message || 'Failed to download PDFs. Please try again.';
         }
@@ -473,27 +512,106 @@ const downloadSelectedPDFs = async () => {
         console.error('Error downloading PDFs:', err);
     } finally {
         downloading.value = false;
-        downloadAbortController.value = null;  // Clean up
-        // Ensure interval is cleared
-        if (progressInterval.value) {
-            clearInterval(progressInterval.value);
-            progressInterval.value = null;
-        }
+        downloadAbortController.value = null;
     }
 };
 
-// Cancel download function
+const retryFailedDocuments = async () => {
+    if (selectedFailedDocs.value.size === 0) {
+        alert('Please select at least one document and choose a language for it.');
+        return;
+    }
+    
+    showFailedModal.value = false;
+    downloading.value = true;
+    error.value = null;
+    downloadProgress.value = 0;
+    
+    try {
+        const retryRequests: { celex: string; lang: string }[] = [];
+        
+        selectedFailedDocs.value.forEach((lang, celex) => {
+            retryRequests.push({ celex, lang });
+        });
+        
+        currentDownloadFile.value = 'Retrying failed documents...';
+        
+        const zip = new JSZip();
+        let successCount = 0;
+        
+        for (let i = 0; i < retryRequests.length; i++) {
+            const { celex, lang } = retryRequests[i];
+            currentDownloadFile.value = celex;
+            
+            try {
+                const response = await axios.get(`/api/laws/${encodeURIComponent(celex)}/pdf`, {
+                    params: { lang: lang },
+                    timeout: 10000
+                });
+                
+                if (response.data.isSuccess && response.data.url) {
+                    const pdfResponse = await fetch(response.data.url);
+                    const blob = await pdfResponse.blob();
+                    zip.file(`${celex}_${lang}.pdf`, blob);
+                    successCount++;
+                }
+            } catch (err) {
+                console.error(`Failed to retry ${celex}:`, err);
+            }
+            
+            downloadProgress.value = Math.round((i + 1) / retryRequests.length * 100);
+        }
+        
+        if (successCount > 0) {
+            const zipBlob = await zip.generateAsync({
+                type: 'blob',
+                compression: 'DEFLATE',
+                compressionOptions: { level: 6 }
+            });
+            
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-').substring(0, 19);
+            saveAs(zipBlob, `laws_retry_${timestamp}.zip`);
+            
+            error.value = `Successfully downloaded ${successCount} of ${retryRequests.length} documents.`;
+        } else {
+            error.value = 'Failed to download any documents in alternative languages.';
+        }
+        
+    } catch (err) {
+        console.error('Error retrying downloads:', err);
+        error.value = 'Failed to retry downloads. Please try again.';
+    } finally {
+        downloading.value = false;
+        downloadProgress.value = 0;
+        currentDownloadFile.value = '';
+        selectedFailedDocs.value.clear();
+        failedDocuments.value = [];
+    }
+};
+
+const closeFailedModal = () => {
+    showFailedModal.value = false;
+    selectedFailedDocs.value.clear();
+    failedDocuments.value = [];
+};
+
+const updateFailedDocLanguage = (celex: string, lang: string) => {
+    if (lang) {
+        selectedFailedDocs.value.set(celex, lang);
+    } else {
+        selectedFailedDocs.value.delete(celex);
+    }
+};
+
 const cancelDownload = () => {
     if (downloadAbortController.value) {
         downloadAbortController.value.abort();
         
-        // Clear the progress interval
         if (progressInterval.value) {
             clearInterval(progressInterval.value);
             progressInterval.value = null;
         }
         
-        // Reset UI state
         downloading.value = false;
         downloadProgress.value = 0;
         estimatedTime.value = 0;
@@ -502,12 +620,10 @@ const cancelDownload = () => {
         totalFiles.value = 0;
         error.value = 'Download cancelled';
         
-        // Clean up abort controller
         downloadAbortController.value = null;
     }
 };
 
-// Helper function to format seconds to readable time
 const formatTime = (seconds: number): string => {
     if (seconds < 60) {
         return `${seconds} second${seconds !== 1 ? 's' : ''}`;
@@ -518,6 +634,11 @@ const formatTime = (seconds: number): string => {
         return `${minutes} minute${minutes !== 1 ? 's' : ''}`;
     }
     return `${minutes} min ${remainingSeconds} sec`;
+};
+
+const getLanguageName = (code: string): string => {
+    const lang = languages.find(l => l.Code === code);
+    return lang ? lang.Name : code;
 };
 
 // Selection handlers
@@ -594,11 +715,77 @@ watch([selectedDocuments], () => {
 </script>
 
 <template>
-    <!-- Loading Overlay - Shows on initial load or when no documents -->
+    <!-- Loading Overlay -->
     <div v-if="initialLoading || (loading && lawDocuments.length === 0)" class="loading-overlay">
         <div class="loading-spinner-container">
             <div class="loading-spinner"></div>
             <p class="loading-text">Loading documents...</p>
+        </div>
+    </div>
+
+    <!-- Language Selection Modal -->
+    <div v-if="showLanguageModal" class="modal-overlay" @click="closeLanguageModal">
+        <div class="modal-content" @click.stop>
+            <h3>Document Not Available in {{ selectedLang }}</h3>
+            <p v-if="languageModalData?.title" class="modal-doc-title">{{ languageModalData.title }}</p>
+            <p class="modal-celex">CELEX: {{ languageModalData?.celex }}</p>
+            <p>This document is available in the following languages:</p>
+            <div class="language-buttons">
+                <button 
+                    v-for="lang in languageModalData?.availableLanguages" 
+                    :key="lang"
+                    @click="selectLanguage(lang)"
+                    class="lang-option-btn"
+                >
+                    {{ getLanguageName(lang) }}
+                </button>
+            </div>
+            <button @click="closeLanguageModal" class="modal-close-btn">Cancel</button>
+        </div>
+    </div>
+
+    <!-- Failed Documents Modal -->
+    <div v-if="showFailedModal" class="modal-overlay" @click="closeFailedModal">
+        <div class="modal-content failed-modal" @click.stop>
+            <h3>Some Documents Failed to Download</h3>
+            <p class="modal-subtitle">The following documents are not available in {{ selectedLang }}. You can select alternative languages for them:</p>
+            
+            <div class="failed-docs-list">
+                <div v-for="doc in failedDocuments" :key="doc.celex" class="failed-doc-item">
+                    <div class="failed-doc-info">
+                        <span class="doc-celex">{{ doc.celex }}</span>
+                        <span v-if="doc.originalTitle" class="doc-title">{{ doc.originalTitle }}</span>
+                        <span class="doc-problem">{{ doc.problem }}</span>
+                    </div>
+                    <div class="lang-selector">
+                        <select 
+                            v-if="doc.availableLanguages.length > 0"
+                            @change="(e) => updateFailedDocLanguage(doc.celex, (e.target as HTMLSelectElement).value)"
+                        >
+                            <option value="">Select language</option>
+                            <option 
+                                v-for="lang in doc.availableLanguages" 
+                                :key="lang"
+                                :value="lang"
+                            >
+                                {{ getLanguageName(lang) }}
+                            </option>
+                        </select>
+                        <span v-else class="no-langs">No translations available</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="modal-actions">
+                <button 
+                    @click="retryFailedDocuments" 
+                    class="retry-btn"
+                    :disabled="selectedFailedDocs.size === 0"
+                >
+                    Download Selected ({{ selectedFailedDocs.size }})
+                </button>
+                <button @click="closeFailedModal" class="modal-close-btn">Close</button>
+            </div>
         </div>
     </div>
 
@@ -665,23 +852,22 @@ watch([selectedDocuments], () => {
                 <div class="progress-details">
                     <strong>Downloading {{ selectedCount }} files...</strong>
                     
-                    <!-- Show different info based on phase -->
                     <p v-if="estimatedTime > 0">
                         Estimated time: {{ formatTime(estimatedTime) }}
                     </p>
                     <p v-else-if="currentDownloadFile && !currentDownloadFile.includes('Processing')">
-                        {{ currentDownloadFile.includes('Generating') ? currentDownloadFile : `Downloading: ${currentDownloadFile}` }}
+                        {{ currentDownloadFile.includes('Generating') || currentDownloadFile.includes('Retrying') 
+                           ? currentDownloadFile 
+                           : `Downloading: ${currentDownloadFile}` }}
                     </p>
                     <p v-else>
                         Processing request...
                     </p>
                     
-                    <!-- Show file progress only during download phase (not API phase) -->
                     <p v-if="totalFiles > 0 && downloadedFiles > 0">
                         Progress: {{ downloadedFiles }} / {{ totalFiles }} files
                     </p>
                     
-                    <!-- Progress bar -->
                     <div class="progress-bar-container">
                         <div class="progress-bar">
                             <div 
@@ -693,7 +879,6 @@ watch([selectedDocuments], () => {
                         <span class="progress-percentage">{{ downloadProgress }}%</span>
                     </div>
                     
-                    <!-- Status message -->
                     <p class="progress-status" v-if="downloadProgress > 0 && downloadProgress < 100">
                         <template v-if="estimatedTime > 0">
                             {{ downloadProgress >= 96 ? 'Finalizing request...' : 'Processing files...' }}
@@ -703,7 +888,6 @@ watch([selectedDocuments], () => {
                         </template>
                     </p>
                 </div>
-                <!-- Cancel button -->
                 <button @click="cancelDownload" class="cancel-download-btn">
                     Cancel
                 </button>
@@ -898,6 +1082,215 @@ watch([selectedDocuments], () => {
     50% { opacity: 0.6; }
 }
 
+/* Modal Overlay and Content */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.5);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 10000;
+    animation: fadeIn 0.2s ease;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.modal-content {
+    background: white;
+    border-radius: 8px;
+    padding: 30px;
+    max-width: 500px;
+    width: 90%;
+    max-height: 80vh;
+    overflow-y: auto;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+    animation: slideIn 0.3s ease;
+}
+
+@keyframes slideIn {
+    from {
+        opacity: 0;
+        transform: translateY(-20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.modal-content h3 {
+    margin: 0 0 20px 0;
+    color: #212529;
+    font-size: 1.5rem;
+}
+
+.modal-doc-title {
+    color: #495057;
+    margin: 10px 0;
+    font-size: 14px;
+    line-height: 1.4;
+}
+
+.modal-celex {
+    font-family: 'Courier New', monospace;
+    color: #007bff;
+    margin: 10px 0;
+    font-weight: 500;
+}
+
+.modal-subtitle {
+    color: #6c757d;
+    margin-bottom: 20px;
+    font-size: 14px;
+}
+
+.language-buttons {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 10px;
+    margin: 20px 0;
+}
+
+.lang-option-btn {
+    padding: 10px 15px;
+    background-color: #007bff;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    transition: background-color 0.2s;
+}
+
+.lang-option-btn:hover {
+    background-color: #0056b3;
+}
+
+.modal-close-btn {
+    width: 100%;
+    padding: 10px;
+    background-color: #6c757d;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    margin-top: 10px;
+    transition: background-color 0.2s;
+}
+
+.modal-close-btn:hover {
+    background-color: #5a6268;
+}
+
+/* Failed Documents Modal */
+.failed-modal {
+    max-width: 700px;
+}
+
+.failed-docs-list {
+    max-height: 400px;
+    overflow-y: auto;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+    padding: 10px;
+    margin: 20px 0;
+}
+
+.failed-doc-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px;
+    border-bottom: 1px solid #e9ecef;
+    gap: 15px;
+}
+
+.failed-doc-item:last-child {
+    border-bottom: none;
+}
+
+.failed-doc-info {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.doc-celex {
+    font-family: 'Courier New', monospace;
+    font-weight: 600;
+    color: #007bff;
+}
+
+.doc-title {
+    font-size: 13px;
+    color: #495057;
+    line-height: 1.3;
+}
+
+.doc-problem {
+    font-size: 12px;
+    color: #dc3545;
+    font-style: italic;
+}
+
+.lang-selector {
+    flex-shrink: 0;
+}
+
+.lang-selector select {
+    padding: 6px 10px;
+    border: 1px solid #ced4da;
+    border-radius: 4px;
+    font-size: 13px;
+    cursor: pointer;
+    min-width: 150px;
+}
+
+.no-langs {
+    font-size: 13px;
+    color: #6c757d;
+    font-style: italic;
+}
+
+.modal-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 20px;
+}
+
+.retry-btn {
+    flex: 1;
+    padding: 10px;
+    background-color: #28a745;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    transition: background-color 0.2s;
+}
+
+.retry-btn:hover:not(:disabled) {
+    background-color: #218838;
+}
+
+.retry-btn:disabled {
+    background-color: #6c757d;
+    cursor: not-allowed;
+}
+
 /* Header */
 .header {
     display: flex;
@@ -1084,7 +1477,6 @@ select {
     flex-shrink: 0;
 }
 
-/* Cancel button */
 .cancel-download-btn {
     height: 30px;
     padding: 6px 16px;
@@ -1104,11 +1496,6 @@ select {
 
 .cancel-download-btn:hover {
     background-color: #c82333;
-}
-
-.cancel-download-btn svg {
-    width: 14px;
-    height: 14px;
 }
 
 @keyframes slideDown {
@@ -1500,6 +1887,25 @@ select {
     
     .progress-status {
         text-align: center;
+    }
+    
+    .modal-content {
+        width: 95%;
+        padding: 20px;
+    }
+    
+    .failed-doc-item {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 10px;
+    }
+    
+    .lang-selector select {
+        width: 100%;
+    }
+    
+    .modal-actions {
+        flex-direction: column;
     }
 }
 </style>

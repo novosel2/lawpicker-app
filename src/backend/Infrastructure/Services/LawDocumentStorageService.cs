@@ -34,8 +34,23 @@ public class LawDocumentStorageService : ILawDocumentStorageService
     public async Task<bool> ExistsInCacheAsync(string celexNumber, string lang)
     {
         var db = _redis.GetDatabase();
+        var blobClient = _blobContainer.GetBlobClient($"{celexNumber}@{lang}.pdf");
 
-        return await db.KeyExistsAsync($"doc:{celexNumber}@{lang}");
+        string key = $"doc:{celexNumber}@{lang}";
+
+        bool exists = await db.KeyExistsAsync(key);
+        
+        if (!exists && !await blobClient.ExistsAsync())
+        {
+            _logger.LogWarning("Document {Celex} not found in the blob storage", celexNumber);
+            return false;
+        }
+
+
+        var uri = blobClient.GenerateSasUri(BlobSasPermissions.Read, DateTimeOffset.UtcNow.AddDays(7));
+        await db.StringSetAsync(key, uri.ToString(), TimeSpan.FromDays(7));
+
+        return true;
     }
 
 
@@ -57,9 +72,10 @@ public class LawDocumentStorageService : ILawDocumentStorageService
             string key = $"doc:{celexNumber}@{lang}";
             string? url = await db.StringGetAsync(key);
 
-            if (!string.IsNullOrEmpty(url))
+            if (string.IsNullOrEmpty(url) || await db.KeyExpireTimeAsync(key) <= DateTime.UtcNow.AddDays(1))
             {
-                await db.KeyExpireAsync(key, TimeSpan.FromDays(7));
+                var uri = blobClient.GenerateSasUri(BlobSasPermissions.Read, DateTimeOffset.UtcNow.AddDays(7));
+                await db.StringSetAsync(key, uri.ToString(), TimeSpan.FromDays(7));
             }
 
             _logger.LogDebug("{Celex} pulled from cache in {Estimated}ms", celexNumber, sw.ElapsedMilliseconds);

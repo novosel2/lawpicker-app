@@ -24,7 +24,7 @@ public static class ConfigureServicesExtension
         services.AddScoped<HandleExceptionsFilter>();
         services.AddControllers(options => 
         {
-            options.Filters.AddService<HandleExceptionsFilter>();
+            // options.Filters.AddService<HandleExceptionsFilter>();
         });
 
         services.AddLogging();

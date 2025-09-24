@@ -25,11 +25,14 @@ public class LawDocumentRepository : ILawDocumentRepository
     }
 
 
-    public async Task<List<LawDocument>> GetLawDocumentsAsync(string? documentTypes, string? search, int page, int limit) 
+    public async Task<List<LawDocument>> GetLawDocumentsAsync(string? documentTypes, string? search, string lang, int page, int limit) 
     {
         var sw = Stopwatch.StartNew();
 
-        var query = _db.LawDocuments.AsQueryable();
+        var query = _db.LawDocuments
+            // .Include(ld => ld.DocumentLanguages)
+            // .ThenInclude(dl => dl.LanguageCode)
+            .AsQueryable();
         
         if (!string.IsNullOrWhiteSpace(documentTypes))
         {
@@ -45,8 +48,10 @@ public class LawDocumentRepository : ILawDocumentRepository
                 query = query.Where(ld => EF.Functions.Like(ld.Title.ToLower(), $"%{word.ToLower()}%"));
         }
         
+        var normalizedLang = lang.ToUpper();
         var lawDocuments = await query
-            .OrderByDescending(ld => ld.Celex)
+            //.Where(ld => ld.DocumentLanguages.Any(dl => dl.LanguageCode == normalizedLang))
+            .OrderByDescending(ld => ld.Date)
             .Skip(page * limit)
             .Take(limit)
             .ToListAsync();
@@ -58,17 +63,19 @@ public class LawDocumentRepository : ILawDocumentRepository
                 documentTypes ?? "all", 
                 search ?? "none", 
                 sw.ElapsedMilliseconds);
-
             
         return lawDocuments;
     }
     
     
-    public async Task<int> GetLawDocumentsCountAsync(string? documentTypes, string? search)
+    public async Task<int> GetLawDocumentsCountAsync(string? documentTypes, string? search, string lang)
     {
         var sw = Stopwatch.StartNew();
 
-        var query = _db.LawDocuments.AsQueryable();
+        var query = _db.LawDocuments
+            // .Include(ld => ld.DocumentLanguages)
+            // .ThenInclude(dl => dl.LanguageCode)
+            .AsQueryable();
         
         if (!string.IsNullOrWhiteSpace(documentTypes))
         {
@@ -84,6 +91,9 @@ public class LawDocumentRepository : ILawDocumentRepository
                 query = query.Where(ld => EF.Functions.Like(ld.Title.ToLower(), $"%{word.ToLower()}%"));
         }
 
+        var normalizedLang = lang.ToUpper();
+        //query = query.Where(ld => ld.DocumentLanguages.Any(dl => dl.LanguageCode == normalizedLang));
+
         _logger.LogDebug("Count query took {Elapsed}ms", sw.ElapsedMilliseconds);
 
         return await query.CountAsync();
@@ -93,6 +103,12 @@ public class LawDocumentRepository : ILawDocumentRepository
     public async Task<LawDocument?> GetLawDocumentByCelexAsync(string celex)
     {
         return await _db.LawDocuments.FirstOrDefaultAsync(ld => ld.Celex == celex);
+    }
+
+
+    public async Task<List<Language>> GetAllLanguagesAsync()
+    {
+        return await _db.Languages.ToListAsync();
     }
 
 

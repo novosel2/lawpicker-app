@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using Application.Dto;
 using Application.Interfaces.IServices;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -21,9 +22,9 @@ public class LawDocumentController : ControllerBase
     
 
     [HttpGet]
-    public async Task<IActionResult> GetLawDocuments(string? documentTypes, string? search, int page = 0, int limit = 10)
+    public async Task<IActionResult> GetLawDocuments(string? documentTypes, string? search, string lang = "EN", int page = 0, int limit = 10)
     {
-        var lawDocuments = await _lawDocumentService.GetLawDocumentsAsync(documentTypes, search, page, limit);
+        var lawDocuments = await _lawDocumentService.GetLawDocumentsAsync(documentTypes, search, lang, page, limit);
         return Ok(lawDocuments);
     }
 
@@ -31,16 +32,20 @@ public class LawDocumentController : ControllerBase
     [HttpPost("bulk-pdf")]
     public async Task<IActionResult> GetLawDocumentFiles(List<string> celexNumbers, string lang = "EN")
     {
-        Dictionary<string, string> pdfUrls = await _lawDocumentService.GetLawDocumentFilesAsync(celexNumbers, lang);
-        return Ok(pdfUrls);
+        List<CelexUrlResponse> celexUrlResponses = await _lawDocumentService.GetLawDocumentFilesAsync(celexNumbers, lang);
+        return Ok(celexUrlResponses);
     }
 
 
     [HttpGet("{celex}/pdf")]
     public async Task<IActionResult> GetLawDocumentByCelex(string celex, string lang = "EN")
     {
-        var lawDocumentUrl = await _lawDocumentService.GetUrlByCelexAsync(celex, lang);
-        return Ok(new { url = lawDocumentUrl });
+        var celexUrlResponse = await _lawDocumentService.GetUrlByCelexAsync(celex, lang);
+
+        if (!celexUrlResponse.IsSuccess)
+            return BadRequest(celexUrlResponse);
+
+        return Ok(celexUrlResponse);
     }
 
 

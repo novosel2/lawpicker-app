@@ -3,6 +3,7 @@ using System;
 using Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Infrastructure.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20250923193500_AddMoreLanguages")]
+    partial class AddMoreLanguages
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -55,122 +58,122 @@ namespace Infrastructure.Migrations
                     b.HasData(
                         new
                         {
-                            LanguageCode = "BG",
+                            LanguageCode = "BUL",
                             LanguageName = "Bulgarian"
                         },
                         new
                         {
-                            LanguageCode = "HR",
+                            LanguageCode = "HRV",
                             LanguageName = "Croatian"
                         },
                         new
                         {
-                            LanguageCode = "CS",
+                            LanguageCode = "CES",
                             LanguageName = "Czech"
                         },
                         new
                         {
-                            LanguageCode = "DA",
+                            LanguageCode = "DAN",
                             LanguageName = "Danish"
                         },
                         new
                         {
-                            LanguageCode = "NL",
+                            LanguageCode = "NLD",
                             LanguageName = "Dutch"
                         },
                         new
                         {
-                            LanguageCode = "EN",
+                            LanguageCode = "ENG",
                             LanguageName = "English"
                         },
                         new
                         {
-                            LanguageCode = "ET",
+                            LanguageCode = "EST",
                             LanguageName = "Estonian"
                         },
                         new
                         {
-                            LanguageCode = "FI",
+                            LanguageCode = "FIN",
                             LanguageName = "Finnish"
                         },
                         new
                         {
-                            LanguageCode = "FR",
+                            LanguageCode = "FRA",
                             LanguageName = "French"
                         },
                         new
                         {
-                            LanguageCode = "DE",
+                            LanguageCode = "DEU",
                             LanguageName = "German"
                         },
                         new
                         {
-                            LanguageCode = "EL",
+                            LanguageCode = "ELL",
                             LanguageName = "Greek"
                         },
                         new
                         {
-                            LanguageCode = "HU",
+                            LanguageCode = "HUN",
                             LanguageName = "Hungarian"
                         },
                         new
                         {
-                            LanguageCode = "GA",
+                            LanguageCode = "GLE",
                             LanguageName = "Irish"
                         },
                         new
                         {
-                            LanguageCode = "IT",
+                            LanguageCode = "ITA",
                             LanguageName = "Italian"
                         },
                         new
                         {
-                            LanguageCode = "LV",
+                            LanguageCode = "LAV",
                             LanguageName = "Latvian"
                         },
                         new
                         {
-                            LanguageCode = "LT",
+                            LanguageCode = "LIT",
                             LanguageName = "Lithuanian"
                         },
                         new
                         {
-                            LanguageCode = "MT",
+                            LanguageCode = "MLT",
                             LanguageName = "Maltese"
                         },
                         new
                         {
-                            LanguageCode = "PL",
+                            LanguageCode = "POL",
                             LanguageName = "Polish"
                         },
                         new
                         {
-                            LanguageCode = "PT",
+                            LanguageCode = "POR",
                             LanguageName = "Portuguese"
                         },
                         new
                         {
-                            LanguageCode = "RO",
+                            LanguageCode = "RON",
                             LanguageName = "Romanian"
                         },
                         new
                         {
-                            LanguageCode = "SK",
+                            LanguageCode = "SLK",
                             LanguageName = "Slovak"
                         },
                         new
                         {
-                            LanguageCode = "SL",
+                            LanguageCode = "SLV",
                             LanguageName = "Slovenian"
                         },
                         new
                         {
-                            LanguageCode = "ES",
+                            LanguageCode = "SPA",
                             LanguageName = "Spanish"
                         },
                         new
                         {
-                            LanguageCode = "SV",
+                            LanguageCode = "SWE",
                             LanguageName = "Swedish"
                         });
                 });

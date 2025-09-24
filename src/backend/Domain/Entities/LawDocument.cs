@@ -5,8 +5,6 @@ namespace Domain.Entities;
 public class LawDocument
 {
     [Key]
-    public Guid Id { get; set; }
-
     [Required]
     public string Celex { get; set; } = null!;
 
@@ -19,4 +17,6 @@ public class LawDocument
 
     [Required]
     public string Title { get; set; } = null!;
+
+    public ICollection<DocumentLanguage> DocumentLanguages { get; set; } = [];
 }
