@@ -40,15 +40,17 @@ public class LawDocumentStorageService : ILawDocumentStorageService
 
         bool exists = await db.KeyExistsAsync(key);
         
-        if (!exists && !await blobClient.ExistsAsync())
+        if (!exists)
         {
-            _logger.LogWarning("Document {Celex} not found in the blob storage", celexNumber);
-            return false;
+            if (!await blobClient.ExistsAsync())
+            {
+                _logger.LogWarning("Document {Celex} not found in the blob storage", celexNumber);
+                return false;
+            }
+
+            var uri = blobClient.GenerateSasUri(BlobSasPermissions.Read, DateTimeOffset.UtcNow.AddDays(7));
+            await db.StringSetAsync(key, uri.ToString(), TimeSpan.FromDays(7));
         }
-
-
-        var uri = blobClient.GenerateSasUri(BlobSasPermissions.Read, DateTimeOffset.UtcNow.AddDays(7));
-        await db.StringSetAsync(key, uri.ToString(), TimeSpan.FromDays(7));
 
         return true;
     }
@@ -123,7 +125,7 @@ public class LawDocumentStorageService : ILawDocumentStorageService
         
         foreach (var celex in celexNumbers)
         {
-            results[celex] = await db.KeyExistsAsync($"doc:{celex}@{lang}");
+            results[celex] = await ExistsInCacheAsync(celex, lang);
         }
         
         return results;

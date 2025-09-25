@@ -24,7 +24,7 @@ public static class ConfigureServicesExtension
         services.AddScoped<HandleExceptionsFilter>();
         services.AddControllers(options => 
         {
-            // options.Filters.AddService<HandleExceptionsFilter>();
+            options.Filters.AddService<HandleExceptionsFilter>();
         });
 
         services.AddLogging();
@@ -35,7 +35,7 @@ public static class ConfigureServicesExtension
             {
                 builder
                 .AllowAnyHeader()
-                .WithOrigins("http://localhost:5173")
+                .WithOrigins("http://localhost:5173", "http://localhost:3000")
                 .AllowAnyMethod()
                 .AllowCredentials();
             });

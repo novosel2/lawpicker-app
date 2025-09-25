@@ -3,7 +3,6 @@ import { onMounted, ref, computed, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { languages, lawTypes } from '../store/lists';
 import axios from '../axios-config.ts';
-import DOMPurify from 'dompurify';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 

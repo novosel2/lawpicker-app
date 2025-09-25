@@ -2,7 +2,7 @@
 import axios from 'axios';
 
 // Set base configuration
-axios.defaults.baseURL = 'https://localhost:8000';
+axios.defaults.baseURL = 'http://localhost:8000';
 axios.defaults.withCredentials = true;
 
 // Request interceptor to add auth token to every request

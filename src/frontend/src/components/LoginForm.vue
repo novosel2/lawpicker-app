@@ -86,7 +86,7 @@ const signIn = async () => {
   error.value = "";
   
   try {
-    const response = await axios.post('https://localhost:8000/api/auth/login', {
+    const response = await axios.post('http://localhost:8000/api/auth/login', {
       loginName: loginData.value.loginName,
       password: loginData.value.password
     }, {
@@ -132,7 +132,7 @@ const register = async () => {
   error.value = "";
   
   try {
-    const response = await axios.post('https://localhost:8000/api/auth/register', {
+    const response = await axios.post('http://localhost:8000/api/auth/register', {
       username: registerData.value.username,
       email: registerData.value.email,
       password: registerData.value.password,

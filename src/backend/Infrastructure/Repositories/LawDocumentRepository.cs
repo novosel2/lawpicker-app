@@ -30,8 +30,6 @@ public class LawDocumentRepository : ILawDocumentRepository
         var sw = Stopwatch.StartNew();
 
         var query = _db.LawDocuments
-            // .Include(ld => ld.DocumentLanguages)
-            // .ThenInclude(dl => dl.LanguageCode)
             .AsQueryable();
         
         if (!string.IsNullOrWhiteSpace(documentTypes))
@@ -48,10 +46,9 @@ public class LawDocumentRepository : ILawDocumentRepository
                 query = query.Where(ld => EF.Functions.Like(ld.Title.ToLower(), $"%{word.ToLower()}%"));
         }
         
-        var normalizedLang = lang.ToUpper();
         var lawDocuments = await query
-            //.Where(ld => ld.DocumentLanguages.Any(dl => dl.LanguageCode == normalizedLang))
             .OrderByDescending(ld => ld.Date)
+            .ThenByDescending(ld => ld.Celex)
             .Skip(page * limit)
             .Take(limit)
             .ToListAsync();
