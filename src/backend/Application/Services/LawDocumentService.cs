@@ -55,10 +55,10 @@ public class LawDocumentService : ILawDocumentService
     }
 
 
-    public async Task<LawDocumentsListResponse> GetLawDocumentsAsync(string? documentTypes, string? search, string lang, int page, int limit)
+    public async Task<LawDocumentsListResponse> GetLawDocumentsAsync(string? documentTypes, string? search, int page, int limit)
     {
-        var lawDocuments = await _lawDocumentRepository.GetLawDocumentsAsync(documentTypes, search, lang, page, limit);
-        int count = await _lawDocumentRepository.GetLawDocumentsCountAsync(documentTypes, search, lang);
+        var lawDocuments = await _lawDocumentRepository.GetLawDocumentsAsync(documentTypes, search, page, limit);
+        int count = await _lawDocumentRepository.GetLawDocumentsCountAsync(documentTypes, search);
 
         var lawDocumentsResponse = new LawDocumentsListResponse()
         {

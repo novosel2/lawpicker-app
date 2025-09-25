@@ -15,20 +15,18 @@ public interface ILawDocumentRepository
     /// </summary>
     /// <param name="documentTypes">Document type</param>
     /// <param name="search">Search query for law document names</param>
-    /// <param name="lang">Language of the documents</param>
     /// <param name="page">Selected page number</param>
     /// <param name="limit">Limit of returned law documents</param>
     /// <returns>List of law documents</returns>
-    Task<List<LawDocument>> GetLawDocumentsAsync(string? documentTypes, string? search, string lang, int page, int limit);
+    Task<List<LawDocument>> GetLawDocumentsAsync(string? documentTypes, string? search, int page, int limit);
 
     /// <summary>
     /// Gets total number of documents with specified filters
     /// </summary>
     /// <param name="documentTypes">Document type</param>
     /// <param name="search">Search query for law document names</param>
-    /// <param name="lang">Language of the documents</param>
     /// <returns>Total number of documents with filters</returns>
-    Task<int> GetLawDocumentsCountAsync(string? documentTypes, string? search, string lang);
+    Task<int> GetLawDocumentsCountAsync(string? documentTypes, string? search);
 
     /// <summary>
     /// Get law document by celex

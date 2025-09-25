@@ -14,11 +14,10 @@ public interface ILawDocumentService
     /// </summary>
     /// <param name="documentTypes">Document type</param>
     /// <param name="search">Search query for law document names</param>
-    /// <param name="lang">Language of the documents</param>
     /// <param name="page">Selected page number</param>
     /// <param name="limit">Limit of returned law documents</param>
     /// <returns>List of law documents, with total number of documents with that filter</returns>
-    Task<LawDocumentsListResponse> GetLawDocumentsAsync(string? documentTypes, string? search, string lang, int page, int limit);
+    Task<LawDocumentsListResponse> GetLawDocumentsAsync(string? documentTypes, string? search, int page, int limit);
 
     /// <summary>
     /// Gets selected law documents based on celex numbers

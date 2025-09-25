@@ -22,9 +22,9 @@ public class LawDocumentController : ControllerBase
     
 
     [HttpGet]
-    public async Task<IActionResult> GetLawDocuments(string? documentTypes, string? search, string lang = "EN", int page = 0, int limit = 10)
+    public async Task<IActionResult> GetLawDocuments(string? documentTypes, string? search, int page = 0, int limit = 10)
     {
-        var lawDocuments = await _lawDocumentService.GetLawDocumentsAsync(documentTypes, search, lang, page, limit);
+        var lawDocuments = await _lawDocumentService.GetLawDocumentsAsync(documentTypes, search, page, limit);
         return Ok(lawDocuments);
     }
 

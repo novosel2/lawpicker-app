@@ -25,7 +25,7 @@ public class LawDocumentRepository : ILawDocumentRepository
     }
 
 
-    public async Task<List<LawDocument>> GetLawDocumentsAsync(string? documentTypes, string? search, string lang, int page, int limit) 
+    public async Task<List<LawDocument>> GetLawDocumentsAsync(string? documentTypes, string? search, int page, int limit) 
     {
         var sw = Stopwatch.StartNew();
 
@@ -65,7 +65,7 @@ public class LawDocumentRepository : ILawDocumentRepository
     }
     
     
-    public async Task<int> GetLawDocumentsCountAsync(string? documentTypes, string? search, string lang)
+    public async Task<int> GetLawDocumentsCountAsync(string? documentTypes, string? search)
     {
         var sw = Stopwatch.StartNew();
 
@@ -87,9 +87,6 @@ public class LawDocumentRepository : ILawDocumentRepository
             foreach (var word in searchWords)
                 query = query.Where(ld => EF.Functions.Like(ld.Title.ToLower(), $"%{word.ToLower()}%"));
         }
-
-        var normalizedLang = lang.ToUpper();
-        //query = query.Where(ld => ld.DocumentLanguages.Any(dl => dl.LanguageCode == normalizedLang));
 
         _logger.LogDebug("Count query took {Elapsed}ms", sw.ElapsedMilliseconds);
 
