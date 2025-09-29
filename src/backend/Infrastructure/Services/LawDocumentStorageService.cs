@@ -13,16 +13,17 @@ public class LawDocumentStorageService : ILawDocumentStorageService
     private readonly BlobContainerClient _blobContainer;
     private readonly IConnectionMultiplexer _redis;
     private readonly ILogger<LawDocumentStorageService> _logger;
-    private const string CONTAINER_NAME = "lawscontainer";
+    private readonly string _containerName;
 
     public LawDocumentStorageService(IConfiguration configuration, ILogger<LawDocumentStorageService> logger)
     {
         _logger = logger;
 
         var azureConnectionString = configuration.GetConnectionString("AzureStorage");
+        _containerName = configuration["AzureStorage:LawContainer"]!;
 
         var blobServiceClient = new BlobServiceClient(azureConnectionString);
-        _blobContainer = blobServiceClient.GetBlobContainerClient(CONTAINER_NAME);
+        _blobContainer = blobServiceClient.GetBlobContainerClient(_containerName);
         _blobContainer.CreateIfNotExists();
 
         var redisConnectionString = configuration.GetConnectionString("Redis");

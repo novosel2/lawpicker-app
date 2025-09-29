@@ -2,6 +2,8 @@ using Application.Exceptions;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
 using Microsoft.AspNetCore.Mvc.Infrastructure;
+using Microsoft.EntityFrameworkCore;
+using Npgsql;
 
 namespace Api.Filters;
 
@@ -29,11 +31,33 @@ public class HandleExceptionsFilter : IExceptionFilter
             UnauthorizedAccessException => CreateProblemDetails(exception, httpContext, "Unauthorized Access", 401),
             NotFoundException => CreateProblemDetails(exception, httpContext, "Not Found", 404),
             SavingChangesFailedException => CreateProblemDetails(exception, httpContext, "Saving Changes Failed", 500),
+
+            DbUpdateException dbEx when dbEx.InnerException is PostgresException pgEx && pgEx.SqlState == "23505" 
+                => HandleUniqueConstraintViolation(pgEx, httpContext),
+
             _ => throw exception
         };
 
         context.ExceptionHandled = true;
         context.Result = new ObjectResult(problemDetails);
+    }
+
+    private ProblemDetails HandleUniqueConstraintViolation(PostgresException pgEx, HttpContext httpContext)
+    {
+        var (title, detail) = pgEx.ConstraintName switch
+        {
+            "UserNameIndex" => ("Username Already Exists", "A user with this username already exists."),
+            "EmailIndex" => ("Email Already Exists", "A user with this email already exists."),
+            _ => ("Duplicate Entry", "The resource you're trying to create already exists.")
+        };
+
+        _logger.LogWarning("Unique constraint violation: {ConstraintName} - {Detail}", pgEx.ConstraintName, pgEx.Detail);
+
+        return _problemDetailsFactory.CreateProblemDetails(
+            httpContext,
+            statusCode: 400,
+            title: title,
+            detail: detail);
     }
 
     private ProblemDetails CreateProblemDetails(Exception exception, HttpContext httpContext, string title, int statusCode)

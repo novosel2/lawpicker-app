@@ -27,16 +27,8 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    environment:
-      - ASPNETCORE_ENVIRONMENT=Development
-      - ASPNETCORE_URLS=http://+:8080
-      - ConnectionStrings__AppConnection=Host=postgres;Database=${APP_DB_NAME};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
-      - ConnectionStrings__AuthConnection=Host=postgres;Database=${AUTH_DB_NAME};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
-      - Jwt__Key=${JWT_SECRET_KEY}
-      - Jwt__Issuer=http://localhost:8000
-      - Jwt__Audience=http://localhost:8000
-      - ConnectionStrings__AzureStorage=${AZURE_BLOB_CONNECTION}
-      - ConnectionStrings__Redis=redis:6379
+    env_file:
+      - .env
     ports:
       - "8000:8080"
     depends_on:
