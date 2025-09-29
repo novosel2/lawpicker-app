@@ -31,13 +31,20 @@ public static class ConfigureServicesExtension
 
         services.AddCors(options => 
         {
-            options.AddPolicy("newPolicy", builder => 
+            options.AddPolicy("newPolicy", policy => 
             {
-                builder
+                policy
+                .WithOrigins(
+                        "http://localhost:3000",
+                        "http://localhost:5173",      
+                        "http://localhost:8000",
+                        "https://localhost:3000",
+                        "https://localhost:5173"
+                        )
                 .AllowAnyHeader()
-                .WithOrigins("http://localhost:5173", "http://localhost:3000")
                 .AllowAnyMethod()
-                .AllowCredentials();
+                .AllowCredentials()
+                .WithExposedHeaders("Content-Disposition", "Content-Length");
             });
         });
 
@@ -148,7 +155,7 @@ public static class ConfigureServicesExtension
         services.AddScoped<ILawDocumentRepository, LawDocumentRepository>();
 
         services.AddScoped<ILawDocumentService, LawDocumentService>();
-        services.AddScoped<ILawDocumentStorageService, LawDocumentStorageService>();
+        services.AddSingleton<ILawDocumentStorageService, LawDocumentStorageService>();
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<ITokenService, TokenService>();
         services.AddScoped<ICurrentUserService, CurrentUserService>();

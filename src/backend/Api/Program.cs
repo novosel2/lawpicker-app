@@ -2,6 +2,7 @@ using Api.Middlewares;
 using Api.StartupExtensions;
 using Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.FileProviders;
 using Serilog;
 using Serilog.Events;
 
@@ -96,6 +97,35 @@ async Task SeedDatabaseAsync(IServiceProvider services)
     }
 }
 
+app.UseCors("newPolicy");
+
+var azureStorageConnection = builder.Configuration.GetConnectionString("AzureStorage");
+if (string.IsNullOrWhiteSpace(azureStorageConnection))
+{
+    var localStoragePath = builder.Configuration["LocalStorage:Path"] 
+        ?? Path.Combine(Directory.GetCurrentDirectory(), "Storage", "LawDocuments");
+    
+    // Ensure the directory exists
+    Directory.CreateDirectory(localStoragePath);
+    
+    // Serve static files from local storage
+    app.UseStaticFiles(new StaticFileOptions
+    {
+        FileProvider = new PhysicalFileProvider(Path.GetFullPath(localStoragePath)),
+        RequestPath = "/storage/law-documents",
+        OnPrepareResponse = ctx =>
+        {
+            ctx.Context.Response.Headers.Append("Access-Control-Allow-Origin", "http://localhost:3000");
+            ctx.Context.Response.Headers.Append("Access-Control-Allow-Methods", "GET, OPTIONS");
+            ctx.Context.Response.Headers.Append("Access-Control-Allow-Headers", "*");
+            ctx.Context.Response.Headers.Append("Access-Control-Allow-Credentials", "true");
+            ctx.Context.Response.Headers.Append("Cache-Control", "public,max-age=604800");
+        }
+    });
+    
+    app.Logger.LogInformation("Static file serving enabled for local storage at: {Path}", localStoragePath);
+}
+
 app.UseMiddleware<LogEndpointsMiddleware>();
 
 app.UseHsts();
@@ -104,7 +134,6 @@ app.UseHttpsRedirection();
 app.UseSwagger();
 app.UseSwaggerUI();
 
-app.UseCors("newPolicy");
 app.MapHealthChecks("/health");
 
 app.UseRouting();

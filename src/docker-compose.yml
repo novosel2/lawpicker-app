@@ -31,6 +31,9 @@ services:
       - .env
     ports:
       - "8000:8080"
+    volumes:
+      # ADD THIS LINE - Maps local storage to container
+      - ./Storage/LawDocuments:/app/storage/law-documents
     depends_on:
       - postgres
       - redis
