@@ -1,5 +1,6 @@
 using Api.Middlewares;
 using Api.StartupExtensions;
+using Application.Interfaces.IServices;
 using Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.FileProviders;
@@ -68,32 +69,23 @@ using (var scope = app.Services.CreateScope())
     }
 }
 
-// Seeding method
 async Task SeedDatabaseAsync(IServiceProvider services)
 {
-    var httpClientFactory = services.GetRequiredService<IHttpClientFactory>();
     var logger = services.GetRequiredService<ILogger<Program>>();
-    
-    using var httpClient = httpClientFactory.CreateClient();
     
     try
     {
-        // Call your fill-database endpoint
-        var response = await httpClient.PostAsync("http://localhost/api/fill-database", null);
+        // Get the service directly instead of making HTTP call
+        var lawDocumentService = services.GetRequiredService<ILawDocumentService>();
         
-        if (response.IsSuccessStatusCode)
-        {
-            logger.LogInformation("Database seeding completed successfully.");
-        }
-        else
-        {
-            logger.LogWarning("Database seeding failed with status code: {StatusCode}", response.StatusCode);
-        }
+        await lawDocumentService.ResetDatabaseAsync();
+        
+        logger.LogInformation("Database seeding completed successfully.");
     }
     catch (Exception ex)
     {
         logger.LogError(ex, "Error occurred while seeding database.");
-        // Don't throw here - let the app start even if seeding fails
+        // Don't throw - let the app start even if seeding fails
     }
 }
 
