@@ -23,14 +23,12 @@ public class LawDocumentStorageService : ILawDocumentStorageService
         _logger = logger;
         _containerName = configuration["AzureStorage:LawContainer"] ?? "law-documents";
 
-        // Check if Azure Storage is configured
         var azureConnectionString = configuration.GetConnectionString("AzureStorage");
         _useAzureStorage = !string.IsNullOrWhiteSpace(azureConnectionString);
         _baseUrl = configuration["LocalStorage:BaseUrl"] ?? "http://localhost:8000"; 
 
         if (_useAzureStorage)
         {
-            // Use Azure Blob Storage
             var blobServiceClient = new BlobServiceClient(azureConnectionString);
             _blobContainer = blobServiceClient.GetBlobContainerClient(_containerName);
             _blobContainer.CreateIfNotExists();
@@ -38,14 +36,12 @@ public class LawDocumentStorageService : ILawDocumentStorageService
         }
         else
         {
-            // Use Local File Storage
             _localStoragePath = configuration["LocalStorage:Path"] ?? Path.Combine(Directory.GetCurrentDirectory(), "Storage", "LawDocuments");
             
             Directory.CreateDirectory(_localStoragePath);
             _logger.LogInformation("Azure Storage not configured. Using local file storage at: {Path}", _localStoragePath);
         }
-
-        // Redis is always used for caching URLs
+        
         var redisConnectionString = configuration.GetConnectionString("Redis");
         _redis = ConnectionMultiplexer.Connect(redisConnectionString!);
     }
@@ -55,12 +51,10 @@ public class LawDocumentStorageService : ILawDocumentStorageService
         var db = _redis.GetDatabase();
         string key = $"doc:{celexNumber}_{lang}";
 
-        // First check Redis cache
         bool exists = await db.KeyExistsAsync(key);
         
         if (!exists)
         {
-            // Check actual storage (Azure or Local)
             bool fileExists = _useAzureStorage 
                 ? await CheckAzureStorageAsync(celexNumber, lang)
                 : CheckLocalStorage(celexNumber, lang);
@@ -71,7 +65,6 @@ public class LawDocumentStorageService : ILawDocumentStorageService
                 return false;
             }
 
-            // File exists but not in Redis, generate URL and cache it
             await GenerateAndCacheUrl(celexNumber, lang);
         }
 
@@ -86,7 +79,6 @@ public class LawDocumentStorageService : ILawDocumentStorageService
             var db = _redis.GetDatabase();
             string key = $"doc:{celexNumber}_{lang}";
 
-            // Check if file exists in storage
             bool fileExists = _useAzureStorage 
                 ? await CheckAzureStorageAsync(celexNumber, lang)
                 : CheckLocalStorage(celexNumber, lang);
@@ -97,11 +89,9 @@ public class LawDocumentStorageService : ILawDocumentStorageService
                 return null;
             }
 
-            // Try to get URL from Redis cache
             string? url = await db.StringGetAsync(key);
             var ttl = await db.KeyTimeToLiveAsync(key);
 
-            // Regenerate URL if not in cache or expiring soon (within 1 day)
             if (string.IsNullOrEmpty(url) || (ttl.HasValue && ttl.Value.TotalDays <= 1))
             {
                 url = await GenerateAndCacheUrl(celexNumber, lang);
@@ -127,16 +117,13 @@ public class LawDocumentStorageService : ILawDocumentStorageService
             string url;
             if (_useAzureStorage)
             {
-                // Store in Azure Blob Storage
                 var blobClient = _blobContainer!.GetBlobClient($"{celexNumber}_{lang}.pdf");
                 await blobClient.UploadAsync(content, overwrite: true);
                 
-                // Generate SAS URL
                 url = blobClient.GenerateSasUri(BlobSasPermissions.Read, DateTimeOffset.UtcNow.AddDays(7)).ToString();
             }
             else
             {
-                // Store in Local File System
                 var fileName = $"{celexNumber}_{lang}.pdf";
                 var filePath = Path.Combine(_localStoragePath!, fileName);
                 
@@ -145,11 +132,9 @@ public class LawDocumentStorageService : ILawDocumentStorageService
                     await content.CopyToAsync(fileStream);
                 }
 
-                // Generate local URL (you'll need to serve these files via static file middleware)
                 url = $"{_baseUrl}/storage/law-documents/{fileName}";
             }
 
-            // Cache URL in Redis
             string key = $"doc:{celexNumber}_{lang}";
             var db = _redis.GetDatabase();
             await db.StringSetAsync(key, url, TimeSpan.FromDays(7));
@@ -177,7 +162,6 @@ public class LawDocumentStorageService : ILawDocumentStorageService
         return results;
     }
 
-    // Helper methods
     private async Task<bool> CheckAzureStorageAsync(string celexNumber, string lang)
     {
         if (_blobContainer == null) return false;
@@ -208,7 +192,6 @@ public class LawDocumentStorageService : ILawDocumentStorageService
             url = $"{_baseUrl}/storage/law-documents/{celexNumber}_{lang}.pdf";
         }
 
-        // Cache in Redis
         var db = _redis.GetDatabase();
         string key = $"doc:{celexNumber}_{lang}";
         await db.StringSetAsync(key, url, TimeSpan.FromDays(7));
