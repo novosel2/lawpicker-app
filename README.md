@@ -192,9 +192,5 @@ docker-compose up
 
 If you encounter permission errors:
 ```bash
-# On Windows (in WSL):
-chmod +x init-multiple-databases.sh
-
-# On Linux/Mac:
 sudo chmod +x init-multiple-databases.sh
 ```
