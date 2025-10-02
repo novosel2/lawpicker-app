@@ -262,7 +262,6 @@ const openPDF = async (celex: string) => {
         
         if (data.isSuccess && data.url) {
             try {
-                const url = new URL(data.url);
                 window.open(data.url, '_blank', 'noopener,noreferrer');
             } catch (urlError) {
                 console.error('Invalid URL received:', urlError);
