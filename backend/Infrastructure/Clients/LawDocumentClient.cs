@@ -92,7 +92,6 @@ LIMIT {limit}
         response.EnsureSuccessStatusCode();
 
         var json = await response.Content.ReadAsStringAsync();
-        Console.WriteLine(json);
         List<LawDocument> lawDocuments = [];
 
         using (JsonDocument doc = JsonDocument.Parse(json))
