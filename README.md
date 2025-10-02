@@ -198,18 +198,3 @@ chmod +x init-multiple-databases.sh
 # On Linux/Mac:
 sudo chmod +x init-multiple-databases.sh
 ```
-
-## Production Deployment
-
-For production deployment:
-
-1. Update environment variables with production values
-2. Use proper SSL certificates
-3. Configure database backups
-4. Set up monitoring and logging solutions
-5. Use Docker Swarm or Kubernetes for orchestration
-6. Configure Azure Blob Storage for PDF persistence
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
