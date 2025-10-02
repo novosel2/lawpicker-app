@@ -37,99 +37,51 @@ A comprehensive web application for searching, accessing, and downloading Europe
 
 ```
 lawpicker-app/
-└── src/
-    ├── backend/                    # Backend (.NET Clean Architecture)
-    │   ├── Api/                    # Web API layer
-    │   │   ├── Controllers/
-    │   │   ├── Properties/
-    │   │   ├── StartupExtensions/
-    │   │   └── Filters/
-    │   ├── Application/            # Application logic layer
-    │   │   ├── Dto/
-    │   │   ├── Exceptions/
-    │   │   ├── Interfaces/
-    │   │   └── Services/
-    │   ├── Domain/                 # Domain entities
-    │   │   └── Entities/
-    │   ├── Infrastructure/         # Data access layer
-    │   │   ├── Clients/
-    │   │   ├── Data/
-    │   │   ├── Migrations/
-    │   │   └── Repositories/
-    │   └── Dockerfile              # Backend container definition
-    ├── frontend/                   # Vue.js application
-    │   ├── public/
-    │   ├── src/
-    │   │   ├── assets/
-    │   │   ├── components/
-    │   │   ├── router/
-    │   │   └── store/
-    │   ├── Dockerfile              # Frontend container definition
-    │   └── nginx.conf              # Web server configuration
-    ├── docker-compose.yml          # Service orchestration
-    ├── .env.example               # Environment template
-    └── init-multiple-databases.sh # Database initialization
+├── src/
+│   ├── backend/                    # Backend (.NET Clean Architecture)
+│   │   ├── Api/                    # Web API layer
+│   │   ├── Application/            # Application logic layer
+│   │   ├── Domain/                 # Domain entities
+│   │   ├── Infrastructure/         # Data access layer
+│   │   └── Dockerfile
+│   ├── frontend/                   # Vue.js application
+│   │   ├── src/
+│   │   ├── Dockerfile
+│   │   └── nginx.conf
+│   ├── docker-compose.yml
+│   └── init-multiple-databases.sh
+├── .env.example
+└── README.md
 ```
 
-## Quick Start with Docker
+## Quick Start
 
 ### Prerequisites
-
-- **Docker** and **Docker Compose** installed
-- **Azure Blob Storage account** (for PDF storage)
-- **Git**
+- Docker and Docker Compose
+- Git
 
 ### Setup
 
-1. **Clone the repository:**
-   ```bash
-   git clone https://github.com/novosel2/lawpicker-app.git
-   cd lawpicker-app/src
-   ```
+```bash
+# Clone repository
+git clone https://github.com/novosel2/lawpicker-app.git
+cd lawpicker-app
 
-2. **Configure environment variables:**
-   ```bash
-   cp .env.example .env
-   nano .env  # Edit with your configuration
-   ```
+# Configure environment
+cp .env.example .env
+nvim .env  # Change POSTGRES_PASSWORD and JWT_SECRET_KEY, optionally add Azure Blob Storage
 
-3. **Set up your `.env` file:**
-   ```env
-   # PostgreSQL Configuration
-   POSTGRES_USER=lawpicker_user
-   POSTGRES_PASSWORD=your_secure_password
-   APP_DB_NAME=laws-db
-   AUTH_DB_NAME=auth-laws-db
+# Windows only: make script executable in WSL
+chmod +x init-multiple-databases.sh
 
-   # JWT Configuration
-   JWT_SECRET_KEY=your-jwt-secret-key-at-least-32-characters-long-jwt-secret-key-at-least-32-characters-long-jwt-secret-key-at-least-32-characters-long
+# Start application
+docker-compose up --build
+```
 
-   # Azure Blob Storage (Required)
-   AZURE_BLOB_CONNECTION="DefaultEndpointsProtocol=https;AccountName=YOUR_ACCOUNT;AccountKey=YOUR_KEY;EndpointSuffix=core.windows.net"
-   ```
-
-4. **Start the application:**
-   ```bash
-   docker-compose up --build
-   ```
-
-### Access the Application
-
+### Access
 - **Frontend**: http://localhost:3000
 - **Backend API**: http://localhost:8000
 - **Swagger**: http://localhost:8000/swagger
-
-## What Happens Automatically
-
-When you run `docker-compose up --build`, the system will:
-
-1. **Build all Docker images** (frontend, backend)
-2. **Start all services** (PostgreSQL, Redis, Backend API, Frontend)
-3. **Create databases** (laws-db and auth-laws-db)
-4. **Run database migrations** (create all required tables)
-5. **Seed database with EU legal documents** (if database is empty, this might take some time)
-
-The application is ready to use once all containers are running and migrations are complete.
 
 ## Development Workflow
 
@@ -138,7 +90,7 @@ The application is ready to use once all containers are running and migrations a
 ```bash
 # After editing C# code:
 docker-compose build backend
-docker-compose up --no-deps backend
+docker-compose up -d backend
 ```
 
 ### Making Frontend Changes
@@ -146,29 +98,39 @@ docker-compose up --no-deps backend
 ```bash
 # After editing Vue.js code:
 docker-compose build frontend  
-docker-compose up --no-deps frontend
+docker-compose up -d frontend
 ```
 
 ### Viewing Logs
 
 ```bash
 # View logs for all services
-docker-compose logs
+docker-compose logs -f
 
 # View logs for specific service
-docker-compose logs backend
-docker-compose logs frontend
-docker-compose logs postgres
+docker-compose logs -f backend
+docker-compose logs -f frontend
+docker-compose logs -f postgres
 ```
 
 ### Stopping the Application
 
 ```bash
-# Stop all services
+# Stop all services (preserves data)
 docker-compose down
 
 # Stop and remove all data (fresh start)
 docker-compose down -v
+```
+
+### Restarting Services
+
+```bash
+# Restart a specific service
+docker-compose restart backend
+
+# Restart all services
+docker-compose restart
 ```
 
 ## API Endpoints
@@ -192,43 +154,62 @@ The application runs across 4 containers:
 
 All containers communicate through a dedicated Docker network and share data through named volumes.
 
-## Production Deployment
-
-For production deployment:
-
-1. Update environment variables for production values
-2. Use proper SSL certificates
-3. Configure proper database backups
-4. Set up monitoring and logging
-5. Use Docker Swarm or Kubernetes for orchestration
-
 ## Troubleshooting
 
 ### Port Conflicts
+
 If ports 3000, 5432, 6379, or 8000 are already in use, modify the port mappings in `docker-compose.yml`:
 
 ```yaml
 services:
   frontend:
     ports:
-      - "3001:80"  # Use different host port
+      - "3001:80"  # Change 3000 to 3001 or another available port
 ```
 
-### Database Issues
+### Database Connection Issues
+
 ```bash
 # Check database logs
 docker-compose logs postgres
 
 # Restart database service
 docker-compose restart postgres
+
+# Verify database containers are running
+docker-compose ps
 ```
 
 ### Build Issues
+
 ```bash
 # Clean rebuild everything
 docker-compose down -v
-docker-compose up --build --force-recreate
+docker-compose build --no-cache
+docker-compose up
 ```
+
+### Permission Denied on init-multiple-databases.sh
+
+If you encounter permission errors:
+```bash
+# On Windows (in WSL):
+chmod +x init-multiple-databases.sh
+
+# On Linux/Mac:
+sudo chmod +x init-multiple-databases.sh
+```
+
+## Production Deployment
+
+For production deployment:
+
+1. Update environment variables with production values
+2. Use proper SSL certificates
+3. Configure database backups
+4. Set up monitoring and logging solutions
+5. Use Docker Swarm or Kubernetes for orchestration
+6. Configure Azure Blob Storage for PDF persistence
 
 ## License
 
