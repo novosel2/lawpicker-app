@@ -105,6 +105,11 @@ public class LawDocumentService : ILawDocumentService
                 try
                 {
                     pdfUrl = await _storage.GetFromStorageAsync(celex, lang);
+
+                    if (pdfUrl == null)
+                    {
+                        cacheStatus[celex] = false;
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -115,7 +120,8 @@ public class LawDocumentService : ILawDocumentService
                     cacheSemaphore.Release();
                 }
             }
-            else
+
+            if (!cacheStatus[celex])
             {
                 await downloadSemaphore.WaitAsync();
                 Stream? pdfStream = null;
