@@ -37,19 +37,18 @@ A comprehensive web application for searching, accessing, and downloading Europe
 
 ```
 lawpicker-app/
-├── src/
-│   ├── backend/                    # Backend (.NET Clean Architecture)
-│   │   ├── Api/                    # Web API layer
-│   │   ├── Application/            # Application logic layer
-│   │   ├── Domain/                 # Domain entities
-│   │   ├── Infrastructure/         # Data access layer
-│   │   └── Dockerfile
-│   ├── frontend/                   # Vue.js application
-│   │   ├── src/
-│   │   ├── Dockerfile
-│   │   └── nginx.conf
-│   ├── docker-compose.yml
-│   └── init-multiple-databases.sh
+├── backend/                    # Backend (.NET Clean Architecture)
+│   ├── Api/                    # Web API layer
+│   ├── Application/            # Application logic layer
+│   ├── Domain/                 # Domain entities
+│   ├── Infrastructure/         # Data access layer
+│   └── Dockerfile
+├── frontend/                   # Vue.js application
+│   ├── src/
+│   ├── Dockerfile
+│   └── nginx.conf
+├── docker-compose.yml
+├── init-multiple-databases.sh
 ├── .env.example
 └── README.md
 ```
