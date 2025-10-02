@@ -121,7 +121,7 @@ public class LawDocumentService : ILawDocumentService
                 }
             }
 
-            if (!cacheStatus[celex])
+            if (cacheStatus[celex] == false)
             {
                 await downloadSemaphore.WaitAsync();
                 Stream? pdfStream = null;

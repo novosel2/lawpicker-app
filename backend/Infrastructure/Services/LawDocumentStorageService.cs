@@ -86,6 +86,7 @@ public class LawDocumentStorageService : ILawDocumentStorageService
             if (!fileExists)
             {
                 _logger.LogWarning("Document {Celex}_{Lang} not found in storage", celexNumber, lang);
+                await db.KeyDeleteAsync(key);
                 return null;
             }
 
