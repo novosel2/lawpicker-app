@@ -263,11 +263,7 @@ const openPDF = async (celex: string) => {
         if (data.isSuccess && data.url) {
             try {
                 const url = new URL(data.url);
-                if (url.protocol === 'https:') {
-                    window.open(data.url, '_blank', 'noopener,noreferrer');
-                } else {
-                    throw new Error('Invalid URL protocol');
-                }
+                window.open(data.url, '_blank', 'noopener,noreferrer');
             } catch (urlError) {
                 console.error('Invalid URL received:', urlError);
                 alert('Failed to open PDF. Invalid URL received.');
