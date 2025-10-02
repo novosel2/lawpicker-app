@@ -11,6 +11,11 @@ services:
       - ./init-multiple-databases.sh:/docker-entrypoint-initdb.d/init-multiple-databases.sh
     ports:
       - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d laws-db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
     networks:
       - app-network
   # Redis Cache
@@ -27,6 +32,9 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
     env_file:
       - .env
     ports:
@@ -34,9 +42,6 @@ services:
     volumes:
       # ADD THIS LINE - Maps local storage to container
       - ./Storage/LawDocuments:/app/storage/law-documents
-    depends_on:
-      - postgres
-      - redis
     networks:
       - app-network
   # Frontend Web App
