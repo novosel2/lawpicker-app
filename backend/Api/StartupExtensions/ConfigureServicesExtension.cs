@@ -147,7 +147,6 @@ public static class ConfigureServicesExtension
         services.AddHttpClient<ILawDocumentClient, LawDocumentClient>(client =>
         {
             client.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0");
-            client.DefaultRequestHeaders.Add("Accept", "application/pdf");
             client.Timeout = TimeSpan.FromSeconds(120);
             client.DefaultRequestHeaders.ConnectionClose = false; // Keep connections alive
         });
